@@ -7,9 +7,14 @@ use std::path::Path;
 use espeak_rs::text_to_phonemes;
 use ort::session::Session;
 use serde_json;
+use unicode_normalization::UnicodeNormalization;
 
-pub use model::ModelConfig;
 use model::infer;
+pub use model::ModelConfig;
+
+fn normalize_phonemes(phonemes: &str) -> String {
+    phonemes.trim().nfd().collect()
+}
 
 #[derive(Debug)]
 pub enum PiperError {
@@ -51,10 +56,7 @@ impl Piper {
         })?;
         let session = Session::builder()
             .map_err(|e| {
-                PiperError::FailedToLoadResource(format!(
-                    "Failed to create session builder: {}",
-                    e
-                ))
+                PiperError::FailedToLoadResource(format!("Failed to create session builder: {}", e))
             })?
             .commit_from_file(model_path)
             .map_err(|e| {
@@ -71,6 +73,24 @@ impl Piper {
         Self { session, config }
     }
 
+    fn phonemize_text(&self, text: &str) -> PiperResult<String> {
+        text_to_phonemes(text, &self.config.espeak.voice, None)
+            .map(|phonemes| phonemes.join(" ").nfd().collect())
+            .map_err(|e| PiperError::PhonemizationError(format!("{e}")))
+    }
+
+    /// Translate text into phoneme chunks grouped by sentence/clause.
+    pub fn phonemize_sentences(&self, text: &str) -> PiperResult<Vec<String>> {
+        text_to_phonemes(text, &self.config.espeak.voice, None)
+            .map(|phonemes| {
+                phonemes
+                    .into_iter()
+                    .map(|phoneme| phoneme.nfd().collect())
+                    .collect()
+            })
+            .map_err(|e| PiperError::PhonemizationError(format!("{e}")))
+    }
+
     /// Synthesize speech from text or phonemes.
     ///
     /// Returns `(samples, sample_rate)` where samples are f32 PCM audio.
@@ -84,11 +104,9 @@ impl Piper {
         noise_w: Option<f32>,
     ) -> PiperResult<(Vec<f32>, u32)> {
         let phonemes = if is_phonemes {
-            text.to_string()
+            normalize_phonemes(text)
         } else {
-            text_to_phonemes(text, &self.config.espeak.voice, None)
-                .map_err(|e| PiperError::PhonemizationError(format!("{}", e)))?
-                .join(" ")
+            self.phonemize_text(text)?
         };
 
         let inf = &self.config.inference;
@@ -112,5 +130,15 @@ impl Piper {
         } else {
             Some(&self.config.speaker_id_map)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_phonemes;
+
+    #[test]
+    fn normalizes_raw_phonemes() {
+        assert_eq!(normalize_phonemes("  e\u{301}  "), "e\u{301}");
     }
 }
