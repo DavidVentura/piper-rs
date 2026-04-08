@@ -58,6 +58,22 @@ impl Piper {
             .map_err(|e| {
                 PiperError::FailedToLoadResource(format!("Failed to create session builder: {}", e))
             })?
+            .with_intra_threads(2)
+            .map_err(|e| {
+                PiperError::FailedToLoadResource(format!("Failed to set ORT intra-op threads: {}", e))
+            })?
+            .with_inter_threads(2)
+            .map_err(|e| {
+                PiperError::FailedToLoadResource(format!("Failed to set ORT inter-op threads: {}", e))
+            })?
+            .with_intra_op_spinning(false)
+            .map_err(|e| {
+                PiperError::FailedToLoadResource(format!("Failed to disable ORT intra-op spinning: {}", e))
+            })?
+            .with_inter_op_spinning(false)
+            .map_err(|e| {
+                PiperError::FailedToLoadResource(format!("Failed to disable ORT inter-op spinning: {}", e))
+            })?
             .commit_from_file(model_path)
             .map_err(|e| {
                 PiperError::FailedToLoadResource(format!(
