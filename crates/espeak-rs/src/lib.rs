@@ -140,12 +140,52 @@ fn split_into_paragraphs(text: &str) -> Vec<String> {
     paragraphs
 }
 
-fn phonemize_paragraph(paragraph: &str, phoneme_mode: i32) -> ESpeakResult<Vec<PhonemeChunk>> {
-    let text_cstr =
-        CString::new(paragraph).map_err(|_| ESpeakError("Text contains a null byte".into()))?;
-
-    let mut chunks: Vec<PhonemeChunk> = Vec::new();
+fn split_paragraph_into_sentenceish_segments(paragraph: &str) -> Vec<(String, bool)> {
+    let mut segments = Vec::new();
     let mut current = String::new();
+    let chars: Vec<char> = paragraph.chars().collect();
+    let mut index = 0;
+
+    while index < chars.len() {
+        let ch = chars[index];
+        current.push(ch);
+        index += 1;
+
+        if matches!(ch, '.' | '?' | '!') {
+            while index < chars.len() && matches!(chars[index], '.' | '?' | '!') {
+                current.push(chars[index]);
+                index += 1;
+            }
+
+            let is_sentence_boundary = index == chars.len() || chars[index].is_whitespace();
+            if is_sentence_boundary {
+                let segment = current.trim();
+                if !segment.is_empty() {
+                    segments.push((segment.to_owned(), true));
+                }
+                current.clear();
+                while index < chars.len() && chars[index].is_whitespace() {
+                    index += 1;
+                }
+            }
+        }
+    }
+
+    let tail = current.trim();
+    if !tail.is_empty() {
+        segments.push((tail.to_owned(), false));
+    }
+
+    if segments.is_empty() && !paragraph.trim().is_empty() {
+        segments.push((paragraph.trim().to_owned(), false));
+    }
+
+    segments
+}
+
+fn phonemize_text_segment(text: &str, phoneme_mode: i32) -> ESpeakResult<String> {
+    let text_cstr = CString::new(text).map_err(|_| ESpeakError("Text contains a null byte".into()))?;
+    let mut phonemes = String::new();
 
     // espeak advances this pointer clause by clause, setting it to null when done.
     let mut text_ptr: *const c_char = text_cstr.as_ptr();
@@ -168,20 +208,29 @@ fn phonemize_paragraph(paragraph: &str, phoneme_mode: i32) -> ESpeakResult<Vec<P
             continue;
         }
 
-        current.push_str(&clause);
-
-        if ends_sentence(&current) {
-            chunks.push(PhonemeChunk {
-                phonemes: mem::take(&mut current),
-                boundary_after: BoundaryAfter::Sentence,
-            });
-        }
+        phonemes.push_str(&clause);
     }
 
-    if !current.is_empty() {
+    Ok(phonemes)
+}
+
+fn phonemize_paragraph(paragraph: &str, phoneme_mode: i32) -> ESpeakResult<Vec<PhonemeChunk>> {
+    let mut chunks: Vec<PhonemeChunk> = Vec::new();
+
+    for (segment, ended_with_sentence_punctuation) in split_paragraph_into_sentenceish_segments(paragraph)
+    {
+        let phonemes = phonemize_text_segment(&segment, phoneme_mode)?;
+        if phonemes.is_empty() {
+            continue;
+        }
+
         chunks.push(PhonemeChunk {
-            phonemes: mem::take(&mut current),
-            boundary_after: BoundaryAfter::None,
+            phonemes,
+            boundary_after: if ended_with_sentence_punctuation {
+                BoundaryAfter::Sentence
+            } else {
+                BoundaryAfter::None
+            },
         });
     }
 
@@ -337,11 +386,39 @@ mod tests {
     }
 
     #[test]
+    fn test_split_paragraph_into_sentenceish_segments() {
+        assert_eq!(
+            split_paragraph_into_sentenceish_segments(
+                "this is a word. this is another word. this is yet a third word"
+            ),
+            vec![
+                ("this is a word.".to_owned(), true),
+                ("this is another word.".to_owned(), true),
+                ("this is yet a third word".to_owned(), false),
+            ]
+        );
+    }
+
+    #[test]
     fn test_text_to_phoneme_chunks_upgrades_sentence_to_paragraph() -> ESpeakResult<()> {
         let chunks = text_to_phoneme_chunks("Hello.\nThere", "en-US", None)?;
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].boundary_after, BoundaryAfter::Paragraph);
         assert_eq!(chunks[1].boundary_after, BoundaryAfter::Paragraph);
+        Ok(())
+    }
+
+    #[test]
+    fn test_text_to_phoneme_chunks_marks_sentence_boundaries_in_paragraph() -> ESpeakResult<()> {
+        let chunks = text_to_phoneme_chunks(
+            "this is a word. this is another word. this is yet a third word",
+            "en-US",
+            None,
+        )?;
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].boundary_after, BoundaryAfter::Sentence);
+        assert_eq!(chunks[1].boundary_after, BoundaryAfter::Sentence);
+        assert_eq!(chunks[2].boundary_after, BoundaryAfter::Paragraph);
         Ok(())
     }
 }
