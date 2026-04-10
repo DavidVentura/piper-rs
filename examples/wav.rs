@@ -13,16 +13,23 @@ use std::path::Path;
 fn main() {
     let config_path = std::env::args().nth(1).expect("Please specify config path");
     let output_path = std::env::args().nth(2).expect("Please specify output path");
-    let speaker_id: Option<i64> = std::env::args().nth(3).map(|s| s.parse().expect("Speaker ID must be a number"));
+    let speaker_id: Option<i64> = std::env::args()
+        .nth(3)
+        .map(|s| s.parse().expect("Speaker ID must be a number"));
 
     let onnx_path = config_path.replace(".onnx.json", ".onnx");
     let piper = Piper::new(Path::new(&onnx_path), Path::new(&config_path)).unwrap();
 
     let text = "Hello! This file was created by piper-rs.";
-    let (samples, sample_rate) = piper.create(text, false, speaker_id, None, None, None).unwrap();
+    let (samples, sample_rate) = piper
+        .create(text, false, speaker_id, None, None, None)
+        .unwrap();
 
     // Convert f32 samples to i16 PCM and write a WAV file
-    let samples_i16: Vec<i16> = samples.iter().map(|&s| (s * i16::MAX as f32) as i16).collect();
+    let samples_i16: Vec<i16> = samples
+        .iter()
+        .map(|&s| (s * i16::MAX as f32) as i16)
+        .collect();
     let mut file = std::fs::File::create(&output_path).unwrap();
     write_wav(&mut file, &samples_i16, sample_rate, 1);
     println!("Saved to {}", output_path);

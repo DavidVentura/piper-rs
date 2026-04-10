@@ -4,11 +4,12 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
-use espeak_rs::text_to_phonemes;
+use espeak_rs::{text_to_phoneme_chunks, text_to_phonemes};
 use ort::session::Session;
 use serde_json;
 use unicode_normalization::UnicodeNormalization;
 
+pub use espeak_rs::{BoundaryAfter, PhonemeChunk};
 use model::infer;
 pub use model::ModelConfig;
 
@@ -60,19 +61,31 @@ impl Piper {
             })?
             .with_intra_threads(2)
             .map_err(|e| {
-                PiperError::FailedToLoadResource(format!("Failed to set ORT intra-op threads: {}", e))
+                PiperError::FailedToLoadResource(format!(
+                    "Failed to set ORT intra-op threads: {}",
+                    e
+                ))
             })?
             .with_inter_threads(2)
             .map_err(|e| {
-                PiperError::FailedToLoadResource(format!("Failed to set ORT inter-op threads: {}", e))
+                PiperError::FailedToLoadResource(format!(
+                    "Failed to set ORT inter-op threads: {}",
+                    e
+                ))
             })?
             .with_intra_op_spinning(false)
             .map_err(|e| {
-                PiperError::FailedToLoadResource(format!("Failed to disable ORT intra-op spinning: {}", e))
+                PiperError::FailedToLoadResource(format!(
+                    "Failed to disable ORT intra-op spinning: {}",
+                    e
+                ))
             })?
             .with_inter_op_spinning(false)
             .map_err(|e| {
-                PiperError::FailedToLoadResource(format!("Failed to disable ORT inter-op spinning: {}", e))
+                PiperError::FailedToLoadResource(format!(
+                    "Failed to disable ORT inter-op spinning: {}",
+                    e
+                ))
             })?
             .commit_from_file(model_path)
             .map_err(|e| {
@@ -95,16 +108,25 @@ impl Piper {
             .map_err(|e| PiperError::PhonemizationError(format!("{e}")))
     }
 
-    /// Translate text into phoneme chunks grouped by sentence/clause.
-    pub fn phonemize_sentences(&self, text: &str) -> PiperResult<Vec<String>> {
-        text_to_phonemes(text, &self.config.espeak.voice, None)
-            .map(|phonemes| {
-                phonemes
+    /// Translate text into phoneme chunks with explicit boundary metadata.
+    pub fn phonemize_chunks(&self, text: &str) -> PiperResult<Vec<PhonemeChunk>> {
+        text_to_phoneme_chunks(text, &self.config.espeak.voice, None)
+            .map(|chunks| {
+                chunks
                     .into_iter()
-                    .map(|phoneme| phoneme.nfd().collect())
+                    .map(|mut chunk| {
+                        chunk.phonemes = chunk.phonemes.nfd().collect();
+                        chunk
+                    })
                     .collect()
             })
             .map_err(|e| PiperError::PhonemizationError(format!("{e}")))
+    }
+
+    /// Translate text into phoneme chunks grouped by sentence/clause.
+    pub fn phonemize_sentences(&self, text: &str) -> PiperResult<Vec<String>> {
+        self.phonemize_chunks(text)
+            .map(|chunks| chunks.into_iter().map(|chunk| chunk.phonemes).collect())
     }
 
     /// Synthesize speech from text or phonemes.

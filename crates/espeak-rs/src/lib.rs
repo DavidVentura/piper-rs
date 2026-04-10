@@ -21,6 +21,19 @@ impl std::fmt::Display for ESpeakError {
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundaryAfter {
+    None,
+    Sentence,
+    Paragraph,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhonemeChunk {
+    pub phonemes: String,
+    pub boundary_after: BoundaryAfter,
+}
+
 static ESPEAK_INIT: OnceLock<ESpeakResult<()>> = OnceLock::new();
 
 fn init_espeak() -> ESpeakResult<()> {
@@ -91,20 +104,112 @@ fn strip_lang_switches(s: &str) -> String {
     out
 }
 
-/// Convert `text` to IPA phonemes using the given espeak-ng voice/language.
+fn ends_sentence(text: &str) -> bool {
+    matches!(text.trim_end().chars().last(), Some('.' | '?' | '!'))
+}
+
+fn split_into_paragraphs(text: &str) -> Vec<String> {
+    let mut paragraphs = Vec::new();
+    let mut current = String::new();
+    let mut prev_line_ended_sentence = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            if !current.is_empty() {
+                paragraphs.push(mem::take(&mut current));
+            }
+            prev_line_ended_sentence = false;
+            continue;
+        }
+
+        if !current.is_empty() && prev_line_ended_sentence {
+            paragraphs.push(mem::take(&mut current));
+        } else if !current.is_empty() {
+            current.push(' ');
+        }
+
+        current.push_str(trimmed);
+        prev_line_ended_sentence = ends_sentence(trimmed);
+    }
+
+    if !current.is_empty() {
+        paragraphs.push(current);
+    }
+
+    paragraphs
+}
+
+fn phonemize_paragraph(paragraph: &str, phoneme_mode: i32) -> ESpeakResult<Vec<PhonemeChunk>> {
+    let text_cstr =
+        CString::new(paragraph).map_err(|_| ESpeakError("Text contains a null byte".into()))?;
+
+    let mut chunks: Vec<PhonemeChunk> = Vec::new();
+    let mut current = String::new();
+
+    // espeak advances this pointer clause by clause, setting it to null when done.
+    let mut text_ptr: *const c_char = text_cstr.as_ptr();
+
+    while !text_ptr.is_null() {
+        let clause = unsafe {
+            let res = espeak_rs_sys::espeak_TextToPhonemes(
+                &mut text_ptr as *mut *const c_char as *mut *const c_void,
+                espeak_rs_sys::espeakCHARS_UTF8 as i32,
+                phoneme_mode,
+            );
+            if res.is_null() {
+                continue;
+            }
+            CStr::from_ptr(res).to_string_lossy().into_owned()
+        };
+
+        let clause = strip_lang_switches(&clause);
+        if clause.is_empty() {
+            continue;
+        }
+
+        current.push_str(&clause);
+
+        if ends_sentence(&current) {
+            chunks.push(PhonemeChunk {
+                phonemes: mem::take(&mut current),
+                boundary_after: BoundaryAfter::Sentence,
+            });
+        }
+    }
+
+    if !current.is_empty() {
+        chunks.push(PhonemeChunk {
+            phonemes: mem::take(&mut current),
+            boundary_after: BoundaryAfter::None,
+        });
+    }
+
+    if let Some(last_chunk) = chunks.last_mut() {
+        last_chunk.boundary_after = BoundaryAfter::Paragraph;
+    }
+
+    Ok(chunks)
+}
+
+/// Convert `text` to IPA phoneme chunks using the given espeak-ng voice/language.
 ///
 /// `espeak_TextToPhonemes` returns one clause at a time (advancing an internal
 /// pointer through the input). Clauses that end a sentence are terminated by
 /// `.`, `?`, or `!` in the phoneme output; sub-clauses (comma, semicolon, …)
-/// end with the corresponding punctuation but do not break a sentence.
-/// This function accumulates sub-clauses and emits one `String` per sentence.
+/// end with the corresponding punctuation but do not break a sentence. Blank
+/// lines split paragraphs, and a sentence-ending `.? !` followed by a newline
+/// also starts a new paragraph.
+///
+/// This function accumulates sub-clauses and emits one `PhonemeChunk` per
+/// sentence or paragraph tail.
 ///
 /// Inline language-switch markers (`(en)`, `(ar)`, …) are always stripped.
-pub fn text_to_phonemes(
+pub fn text_to_phoneme_chunks(
     text: &str,
     language: &str,
     phoneme_separator: Option<char>,
-) -> ESpeakResult<Vec<String>> {
+) -> ESpeakResult<Vec<PhonemeChunk>> {
     // Ensure the library is initialised exactly once.
     ESPEAK_INIT
         .get_or_init(init_espeak)
@@ -123,50 +228,26 @@ pub fn text_to_phonemes(
         None => espeak_rs_sys::espeakINITIALIZE_PHONEME_IPA,
     } as i32;
 
-    let mut sentences: Vec<String> = Vec::new();
-    let mut current = String::new();
-
-    for line in text.lines() {
-        let text_cstr = CString::new(line)
-            .map_err(|_| ESpeakError("Text contains a null byte".into()))?;
-
-        // espeak advances this pointer clause by clause, setting it to null when done.
-        let mut text_ptr: *const c_char = text_cstr.as_ptr();
-
-        while !text_ptr.is_null() {
-            let clause = unsafe {
-                let res = espeak_rs_sys::espeak_TextToPhonemes(
-                    &mut text_ptr as *mut *const c_char as *mut *const c_void,
-                    espeak_rs_sys::espeakCHARS_UTF8 as i32,
-                    phoneme_mode,
-                );
-                if res.is_null() {
-                    continue;
-                }
-                CStr::from_ptr(res).to_string_lossy().into_owned()
-            };
-
-            let clause = strip_lang_switches(&clause);
-            if clause.is_empty() {
-                continue;
-            }
-
-            current.push_str(&clause);
-
-            // espeak appends the clause-ending punctuation to the phoneme string.
-            // A sentence boundary is '.', '?', or '!'; commas etc. are sub-clauses.
-            if matches!(current.trim_end().chars().last(), Some('.' | '?' | '!')) {
-                sentences.push(mem::take(&mut current));
-            }
-        }
-
-        // Flush any trailing content that didn't end with sentence punctuation.
-        if !current.is_empty() {
-            sentences.push(mem::take(&mut current));
-        }
+    let mut chunks = Vec::new();
+    for paragraph in split_into_paragraphs(text) {
+        chunks.extend(phonemize_paragraph(&paragraph, phoneme_mode)?);
     }
 
-    Ok(sentences)
+    Ok(chunks)
+}
+
+/// Compatibility wrapper that drops boundary metadata.
+pub fn text_to_phonemes(
+    text: &str,
+    language: &str,
+    phoneme_separator: Option<char>,
+) -> ESpeakResult<Vec<String>> {
+    text_to_phoneme_chunks(text, language, phoneme_separator).map(|chunks| {
+        chunks
+            .into_iter()
+            .map(|chunk| chunk.phonemes)
+            .collect::<Vec<_>>()
+    })
 }
 
 // ==============================
@@ -227,7 +308,40 @@ mod tests {
     #[test]
     fn test_line_splitting() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes("Hello\nThere\nAnd\nWelcome", "en-US", None)?;
-        assert_eq!(phonemes.len(), 4);
+        assert_eq!(phonemes.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_into_paragraphs_blank_lines() {
+        assert_eq!(
+            split_into_paragraphs("One line\n\nTwo line"),
+            vec!["One line".to_owned(), "Two line".to_owned()]
+        );
+    }
+
+    #[test]
+    fn test_split_into_paragraphs_sentence_newline_marks_paragraph() {
+        assert_eq!(
+            split_into_paragraphs("One.\nTwo"),
+            vec!["One.".to_owned(), "Two".to_owned()]
+        );
+    }
+
+    #[test]
+    fn test_split_into_paragraphs_single_newline_is_formatting() {
+        assert_eq!(
+            split_into_paragraphs("One\nstill one"),
+            vec!["One still one".to_owned()]
+        );
+    }
+
+    #[test]
+    fn test_text_to_phoneme_chunks_upgrades_sentence_to_paragraph() -> ESpeakResult<()> {
+        let chunks = text_to_phoneme_chunks("Hello.\nThere", "en-US", None)?;
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].boundary_after, BoundaryAfter::Paragraph);
+        assert_eq!(chunks[1].boundary_after, BoundaryAfter::Paragraph);
         Ok(())
     }
 }
