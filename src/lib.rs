@@ -30,23 +30,37 @@ pub type PiperResult<T> = Result<T, PiperError>;
 
 pub use espeak_rs::{BoundaryAfter, PhonemeChunk};
 
-fn build_session(model_path: &std::path::Path) -> PiperResult<ort::session::Session> {
+pub enum Backend {
+    Cpu,
+    Xnnpack,
+}
+
+fn build_session(
+    model_path: &std::path::Path,
+    backend: &Backend,
+) -> PiperResult<ort::session::Session> {
     let builder = ort::session::Session::builder().map_err(|e| {
         PiperError::FailedToLoadResource(format!("Failed to create session builder: {}", e))
     })?;
 
-    // XNNPACK benefits ARM (Android/iOS); on x86 it adds overhead vs native ORT kernels.
-    #[cfg(target_arch = "aarch64")]
-    let builder = match builder.with_execution_providers([ort::ep::XNNPACK::default().build()]) {
-        Ok(b) => {
-            eprintln!("ORT: XNNPACK execution provider registered");
-            b
-        }
-        Err(e) => {
-            eprintln!("ORT: XNNPACK not available ({}), using CPU", e);
-            ort::session::Session::builder().map_err(|e| {
-                PiperError::FailedToLoadResource(format!("Failed to create session builder: {}", e))
-            })?
+    let builder = match backend {
+        Backend::Cpu => builder,
+        Backend::Xnnpack => {
+            match builder.with_execution_providers([ort::ep::XNNPACK::default().build()]) {
+                Ok(b) => {
+                    eprintln!("ORT: XNNPACK execution provider registered");
+                    b
+                }
+                Err(e) => {
+                    eprintln!("ORT: XNNPACK not available ({}), falling back to CPU", e);
+                    ort::session::Session::builder().map_err(|e| {
+                        PiperError::FailedToLoadResource(format!(
+                            "Failed to create session builder: {}",
+                            e
+                        ))
+                    })?
+                }
+            }
         }
     };
 

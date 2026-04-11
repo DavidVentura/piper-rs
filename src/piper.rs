@@ -8,7 +8,7 @@ use ort::value::Tensor;
 use serde::Deserialize;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::{build_session, espeak_phonemize, PiperError, PiperResult};
+use crate::{build_session, espeak_phonemize, Backend, PiperError, PiperResult};
 
 const BOS: char = '^';
 const EOS: char = '$';
@@ -53,7 +53,7 @@ pub struct PiperModel {
 }
 
 impl PiperModel {
-    pub fn new(model_path: &Path, config_path: &Path) -> PiperResult<Self> {
+    pub fn new(model_path: &Path, config_path: &Path, backend: &Backend) -> PiperResult<Self> {
         let file = File::open(config_path).map_err(|e| {
             PiperError::FailedToLoadResource(format!(
                 "Failed to open config `{}`: {}",
@@ -64,7 +64,7 @@ impl PiperModel {
         let raw: RawConfig = serde_json::from_reader(file).map_err(|e| {
             PiperError::FailedToLoadResource(format!("Failed to parse config: {}", e))
         })?;
-        let session = build_session(model_path)?;
+        let session = build_session(model_path, backend)?;
         Ok(Self {
             session,
             sample_rate: raw.audio.sample_rate,

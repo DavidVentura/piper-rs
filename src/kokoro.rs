@@ -8,7 +8,7 @@ use ndarray_npy::NpzReader;
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::{build_session, espeak_phonemize, PiperError, PiperResult};
+use crate::{build_session, espeak_phonemize, Backend, PiperError, PiperResult};
 
 pub struct KokoroModel {
     session: Session,
@@ -21,9 +21,14 @@ pub struct KokoroModel {
 }
 
 impl KokoroModel {
-    pub fn new(model_path: &Path, voices_path: &Path, espeak_voice: &str) -> PiperResult<Self> {
+    pub fn new(
+        model_path: &Path,
+        voices_path: &Path,
+        espeak_voice: &str,
+        backend: &Backend,
+    ) -> PiperResult<Self> {
         let (voices, speaker_id_map) = load_voices(voices_path)?;
-        let session = build_session(model_path)?;
+        let session = build_session(model_path, backend)?;
         Ok(Self {
             session,
             espeak_voice: espeak_voice.to_string(),
