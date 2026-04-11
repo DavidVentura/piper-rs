@@ -17,7 +17,7 @@ fn main() {
         .map(|s| s.parse().expect("Speaker ID must be a number"));
 
     let onnx_path = config_path.replace(".onnx.json", ".onnx");
-    let piper = Piper::new(Path::new(&onnx_path), Path::new(&config_path)).unwrap();
+    let mut piper = Piper::new(Path::new(&onnx_path), Path::new(&config_path)).unwrap();
 
     let text = "Hello! I'm playing audio from memory directly with piper-rs.";
     let (samples, sample_rate) = piper
