@@ -1,10 +1,12 @@
 mod kokoro;
+mod mms;
 mod piper;
 
 #[cfg(feature = "japanese")]
 mod japanese;
 
 pub use kokoro::KokoroModel;
+pub use mms::MmsModel;
 pub use piper::PiperModel;
 
 #[derive(Debug)]
