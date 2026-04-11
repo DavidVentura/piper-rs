@@ -30,7 +30,7 @@ fn main() {
 
     for (lang, voice_name, text) in samples {
         let mut model =
-            KokoroModel::new(Path::new(model_path), Path::new(voices_path), lang).unwrap();
+            KokoroModel::new(Path::new(model_path), Path::new(voices_path), lang, &piper_rs::Backend::Cpu).unwrap();
 
         #[cfg(feature = "japanese")]
         if lang == "ja" {

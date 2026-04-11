@@ -26,7 +26,7 @@ fn main() {
 
     for (lang, text) in samples {
         let mut model =
-            KokoroModel::new(Path::new(model_path), Path::new(voices_path), lang).unwrap();
+            KokoroModel::new(Path::new(model_path), Path::new(voices_path), lang, &piper_rs::Backend::Cpu).unwrap();
 
         #[cfg(feature = "japanese")]
         if lang == "ja" {
@@ -41,7 +41,7 @@ fn main() {
         println!();
     }
 
-    let model = KokoroModel::new(Path::new(model_path), Path::new(voices_path), "en-us").unwrap();
+    let model = KokoroModel::new(Path::new(model_path), Path::new(voices_path), "en-us", &piper_rs::Backend::Cpu).unwrap();
     if let Some(voices) = model.voices() {
         let mut speakers: Vec<_> = voices.iter().collect();
         speakers.sort_by_key(|(_, id)| *id);
