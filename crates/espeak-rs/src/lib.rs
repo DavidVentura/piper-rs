@@ -184,7 +184,8 @@ fn split_paragraph_into_sentenceish_segments(paragraph: &str) -> Vec<(String, bo
 }
 
 fn phonemize_text_segment(text: &str, phoneme_mode: i32) -> ESpeakResult<String> {
-    let text_cstr = CString::new(text).map_err(|_| ESpeakError("Text contains a null byte".into()))?;
+    let text_cstr =
+        CString::new(text).map_err(|_| ESpeakError("Text contains a null byte".into()))?;
     let mut phonemes = String::new();
 
     // espeak advances this pointer clause by clause, setting it to null when done.
@@ -217,7 +218,8 @@ fn phonemize_text_segment(text: &str, phoneme_mode: i32) -> ESpeakResult<String>
 fn phonemize_paragraph(paragraph: &str, phoneme_mode: i32) -> ESpeakResult<Vec<PhonemeChunk>> {
     let mut chunks: Vec<PhonemeChunk> = Vec::new();
 
-    for (segment, ended_with_sentence_punctuation) in split_paragraph_into_sentenceish_segments(paragraph)
+    for (segment, ended_with_sentence_punctuation) in
+        split_paragraph_into_sentenceish_segments(paragraph)
     {
         let phonemes = phonemize_text_segment(&segment, phoneme_mode)?;
         if phonemes.is_empty() {

@@ -19,17 +19,14 @@ fn main() {
 
     let samples = [
         ("en-us", "Hello! This is Kokoro, a text to speech model."),
-        ("ja", "こんにちは世界。私はココロです。"),
+        //("ja", "こんにちは世界。私はココロです。"),
+        ("ja", "虹とは、水滴の反射、屈折、光の分散によって発生する気象現象であり、これにより空にさまざまな光が現れる。"),
         ("ko", "안녕하세요세계입니다.저는코코로입니다."),
     ];
 
     for (lang, text) in samples {
-        let mut model = KokoroModel::new(
-            Path::new(model_path),
-            Path::new(voices_path),
-            lang,
-        )
-        .unwrap();
+        let mut model =
+            KokoroModel::new(Path::new(model_path), Path::new(voices_path), lang).unwrap();
 
         #[cfg(feature = "japanese")]
         if lang == "ja" {
@@ -44,12 +41,7 @@ fn main() {
         println!();
     }
 
-    let model = KokoroModel::new(
-        Path::new(model_path),
-        Path::new(voices_path),
-        "en-us",
-    )
-    .unwrap();
+    let model = KokoroModel::new(Path::new(model_path), Path::new(voices_path), "en-us").unwrap();
     if let Some(voices) = model.voices() {
         let mut speakers: Vec<_> = voices.iter().collect();
         speakers.sort_by_key(|(_, id)| *id);

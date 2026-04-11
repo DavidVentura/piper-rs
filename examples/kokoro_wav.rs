@@ -10,10 +10,7 @@ use std::path::Path;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 4 {
-        eprintln!(
-            "Usage: {} <model.onnx> <voices.bin> <mucab.bin>",
-            args[0]
-        );
+        eprintln!("Usage: {} <model.onnx> <voices.bin> <mucab.bin>", args[0]);
         std::process::exit(1);
     }
 
@@ -22,18 +19,18 @@ fn main() {
     let _mucab_path = &args[3];
 
     let samples = [
-        ("en-us", "af_heart", "Hello! This is Kokoro, a text to speech model."),
+        (
+            "en-us",
+            "af_heart",
+            "Hello! This is Kokoro, a text to speech model.",
+        ),
         ("ja", "jf_alpha", "こんにちは世界。私はココロです。"),
         ("ko", "jf_alpha", "안녕하세요. 저는 코코로입니다."),
     ];
 
     for (lang, voice_name, text) in samples {
-        let mut model = KokoroModel::new(
-            Path::new(model_path),
-            Path::new(voices_path),
-            lang,
-        )
-        .unwrap();
+        let mut model =
+            KokoroModel::new(Path::new(model_path), Path::new(voices_path), lang).unwrap();
 
         #[cfg(feature = "japanese")]
         if lang == "ja" {
@@ -49,9 +46,7 @@ fn main() {
         println!("[{}] {} (voice: {}={})", lang, text, voice_name, voice_id);
         println!("  ipa: {}", phonemes);
 
-        let (audio, sample_rate) = model
-            .synthesize(text, Some(voice_id), None)
-            .unwrap();
+        let (audio, sample_rate) = model.synthesize(text, Some(voice_id), None).unwrap();
 
         let filename = format!("kokoro_{}.wav", lang);
         let samples_i16: Vec<i16> = audio
@@ -60,7 +55,11 @@ fn main() {
             .collect();
         let mut file = std::fs::File::create(&filename).unwrap();
         write_wav(&mut file, &samples_i16, sample_rate, 1);
-        println!("  saved: {} ({:.1}s)\n", filename, audio.len() as f32 / sample_rate as f32);
+        println!(
+            "  saved: {} ({:.1}s)\n",
+            filename,
+            audio.len() as f32 / sample_rate as f32
+        );
     }
 }
 

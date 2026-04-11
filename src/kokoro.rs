@@ -21,11 +21,7 @@ pub struct KokoroModel {
 }
 
 impl KokoroModel {
-    pub fn new(
-        model_path: &Path,
-        voices_path: &Path,
-        espeak_voice: &str,
-    ) -> PiperResult<Self> {
+    pub fn new(model_path: &Path, voices_path: &Path, espeak_voice: &str) -> PiperResult<Self> {
         let (voices, speaker_id_map) = load_voices(voices_path)?;
         let session = build_session(model_path)?;
         Ok(Self {
@@ -109,9 +105,9 @@ fn load_voices(
         PiperError::FailedToLoadResource(format!("Failed to read voices npz: {}", e))
     })?;
 
-    let mut names: Vec<String> = npz.names().map_err(|e| {
-        PiperError::FailedToLoadResource(format!("Failed to list voices: {}", e))
-    })?;
+    let mut names: Vec<String> = npz
+        .names()
+        .map_err(|e| PiperError::FailedToLoadResource(format!("Failed to list voices: {}", e)))?;
     names.sort();
 
     let mut styles = HashMap::new();
@@ -160,14 +156,13 @@ fn infer(
     let token_count = ids.len() - 2;
     let input_len = ids.len();
 
-    let voice_styles = voices.get(&speaker_id).ok_or_else(|| {
-        PiperError::InferenceError(format!("Unknown speaker ID: {}", speaker_id))
-    })?;
+    let voice_styles = voices
+        .get(&speaker_id)
+        .ok_or_else(|| PiperError::InferenceError(format!("Unknown speaker ID: {}", speaker_id)))?;
     let style_idx = token_count.min(voice_styles.shape()[0] - 1);
     let style_row = voice_styles.row(style_idx).to_owned();
 
-    let input_t =
-        Tensor::<i64>::from_array(([1, input_len], ids.into_boxed_slice())).unwrap();
+    let input_t = Tensor::<i64>::from_array(([1, input_len], ids.into_boxed_slice())).unwrap();
     let style_t = Tensor::<f32>::from_array((
         [1, 256],
         style_row.into_raw_vec_and_offset().0.into_boxed_slice(),
@@ -182,8 +177,7 @@ fn infer(
             Tensor::<i32>::from_array(([1], vec![speed as i32].into_boxed_slice())).unwrap();
         session.run(ort::inputs![input_t, style_t, speed_t])
     } else {
-        let speed_t =
-            Tensor::<f32>::from_array(([1], vec![speed].into_boxed_slice())).unwrap();
+        let speed_t = Tensor::<f32>::from_array(([1], vec![speed].into_boxed_slice())).unwrap();
         session.run(ort::inputs![input_t, style_t, speed_t])
     }
     .map_err(|e| PiperError::InferenceError(format!("Inference failed: {}", e)))?;
@@ -198,36 +192,119 @@ fn infer(
 /// Kokoro v1.0 phoneme vocabulary (from hexgrad/Kokoro-82M config.json)
 fn kokoro_vocab() -> HashMap<char, i64> {
     [
-        (';', 1), (':', 2), (',', 3), ('.', 4), ('!', 5), ('?', 6),
-        ('\u{2014}', 9), ('\u{2026}', 10), ('"', 11), ('(', 12), (')', 13),
-        ('\u{201c}', 14), ('\u{201d}', 15), (' ', 16), ('\u{0303}', 17),
-        ('ʣ', 18), ('ʥ', 19), ('ʦ', 20), ('ʨ', 21), ('ᵝ', 22), ('\u{ab67}', 23),
-        ('A', 24), ('I', 25), ('O', 31), ('Q', 33), ('S', 35), ('T', 36),
-        ('W', 39), ('Y', 41), ('ᵊ', 42),
-        ('a', 43), ('b', 44), ('c', 45), ('d', 46), ('e', 47), ('f', 48),
-        ('h', 50), ('i', 51), ('j', 52), ('k', 53), ('l', 54), ('m', 55),
-        ('n', 56), ('o', 57), ('p', 58), ('q', 59), ('r', 60), ('s', 61),
-        ('t', 62), ('u', 63), ('v', 64), ('w', 65), ('x', 66), ('y', 67),
+        (';', 1),
+        (':', 2),
+        (',', 3),
+        ('.', 4),
+        ('!', 5),
+        ('?', 6),
+        ('\u{2014}', 9),
+        ('\u{2026}', 10),
+        ('"', 11),
+        ('(', 12),
+        (')', 13),
+        ('\u{201c}', 14),
+        ('\u{201d}', 15),
+        (' ', 16),
+        ('\u{0303}', 17),
+        ('ʣ', 18),
+        ('ʥ', 19),
+        ('ʦ', 20),
+        ('ʨ', 21),
+        ('ᵝ', 22),
+        ('\u{ab67}', 23),
+        ('A', 24),
+        ('I', 25),
+        ('O', 31),
+        ('Q', 33),
+        ('S', 35),
+        ('T', 36),
+        ('W', 39),
+        ('Y', 41),
+        ('ᵊ', 42),
+        ('a', 43),
+        ('b', 44),
+        ('c', 45),
+        ('d', 46),
+        ('e', 47),
+        ('f', 48),
+        ('h', 50),
+        ('i', 51),
+        ('j', 52),
+        ('k', 53),
+        ('l', 54),
+        ('m', 55),
+        ('n', 56),
+        ('o', 57),
+        ('p', 58),
+        ('q', 59),
+        ('r', 60),
+        ('s', 61),
+        ('t', 62),
+        ('u', 63),
+        ('v', 64),
+        ('w', 65),
+        ('x', 66),
+        ('y', 67),
         ('z', 68),
-        ('\u{0251}', 69), ('\u{0250}', 70), ('\u{0252}', 71), ('\u{00e6}', 72),
-        ('\u{03b2}', 75), ('\u{0254}', 76), ('\u{0255}', 77), ('\u{00e7}', 78),
-        ('\u{0256}', 80), ('\u{00f0}', 81), ('ʤ', 82), ('\u{0259}', 83),
-        ('\u{025a}', 85), ('\u{025b}', 86), ('\u{025c}', 87),
-        ('\u{025f}', 90), ('\u{0261}', 92), ('\u{0265}', 99),
-        ('\u{0268}', 101), ('\u{026a}', 102), ('\u{029d}', 103),
-        ('\u{026f}', 110), ('\u{0270}', 111), ('\u{014b}', 112),
-        ('\u{0273}', 113), ('\u{0272}', 114), ('\u{0274}', 115),
-        ('\u{00f8}', 116), ('\u{0278}', 118), ('\u{03b8}', 119),
-        ('\u{0153}', 120), ('\u{0279}', 123), ('\u{027e}', 125),
-        ('\u{027b}', 126), ('\u{0281}', 128), ('\u{027d}', 129),
-        ('\u{0282}', 130), ('\u{0283}', 131), ('\u{0288}', 132),
-        ('ʧ', 133), ('\u{028a}', 135), ('\u{028b}', 136),
-        ('\u{028c}', 138), ('\u{0263}', 139), ('\u{0264}', 140),
-        ('\u{03c7}', 142), ('\u{028e}', 143), ('\u{0292}', 147),
+        ('\u{0251}', 69),
+        ('\u{0250}', 70),
+        ('\u{0252}', 71),
+        ('\u{00e6}', 72),
+        ('\u{03b2}', 75),
+        ('\u{0254}', 76),
+        ('\u{0255}', 77),
+        ('\u{00e7}', 78),
+        ('\u{0256}', 80),
+        ('\u{00f0}', 81),
+        ('ʤ', 82),
+        ('\u{0259}', 83),
+        ('\u{025a}', 85),
+        ('\u{025b}', 86),
+        ('\u{025c}', 87),
+        ('\u{025f}', 90),
+        ('\u{0261}', 92),
+        ('\u{0265}', 99),
+        ('\u{0268}', 101),
+        ('\u{026a}', 102),
+        ('\u{029d}', 103),
+        ('\u{026f}', 110),
+        ('\u{0270}', 111),
+        ('\u{014b}', 112),
+        ('\u{0273}', 113),
+        ('\u{0272}', 114),
+        ('\u{0274}', 115),
+        ('\u{00f8}', 116),
+        ('\u{0278}', 118),
+        ('\u{03b8}', 119),
+        ('\u{0153}', 120),
+        ('\u{0279}', 123),
+        ('\u{027e}', 125),
+        ('\u{027b}', 126),
+        ('\u{0281}', 128),
+        ('\u{027d}', 129),
+        ('\u{0282}', 130),
+        ('\u{0283}', 131),
+        ('\u{0288}', 132),
+        ('ʧ', 133),
+        ('\u{028a}', 135),
+        ('\u{028b}', 136),
+        ('\u{028c}', 138),
+        ('\u{0263}', 139),
+        ('\u{0264}', 140),
+        ('\u{03c7}', 142),
+        ('\u{028e}', 143),
+        ('\u{0292}', 147),
         ('\u{0294}', 148),
-        ('\u{02c8}', 156), ('\u{02cc}', 157), ('\u{02d0}', 158),
-        ('\u{02b0}', 162), ('\u{02b2}', 164),
-        ('\u{2193}', 169), ('\u{2192}', 171), ('\u{2197}', 172), ('\u{2198}', 173),
+        ('\u{02c8}', 156),
+        ('\u{02cc}', 157),
+        ('\u{02d0}', 158),
+        ('\u{02b0}', 162),
+        ('\u{02b2}', 164),
+        ('\u{2193}', 169),
+        ('\u{2192}', 171),
+        ('\u{2197}', 172),
+        ('\u{2198}', 173),
         ('\u{1d7b}', 177),
     ]
     .into_iter()
