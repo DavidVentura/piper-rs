@@ -582,6 +582,7 @@ dependencies = [
 [[package]]
 name = "mucab"
 version = "0.1.0"
+source = "git+https://github.com/DavidVentura/Mucab.git#d2b31acf7253fd00d9c5c487400dcb25b5a32d99"
 dependencies = [
  "encoding_rs",
  "glob",

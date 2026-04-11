@@ -12,7 +12,7 @@ repository = "https://github.com/thewh1teagle/piper-rs"
 
 [dependencies]
 espeak-rs = { path = "crates/espeak-rs", version = "0.1.9", default-features = false }
-mucab = { path = "../mucab", optional = true }
+mucab = { git = "https://github.com/DavidVentura/Mucab.git", optional = true }
 ndarray = "0.16.1"
 ndarray-npy = "0.9"
 serde = { version = "1.0.160", features = ["derive"] }
