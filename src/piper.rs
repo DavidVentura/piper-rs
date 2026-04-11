@@ -85,10 +85,29 @@ impl PiperModel {
         self.synthesize_phonemes(&phonemes, speaker_id)
     }
 
+    pub fn synthesize_with_options(
+        &mut self,
+        text: &str,
+        speaker_id: Option<i64>,
+        length_scale: Option<f32>,
+    ) -> PiperResult<(Vec<f32>, u32)> {
+        let phonemes = espeak_phonemize(text, &self.espeak_voice)?;
+        self.synthesize_phonemes_with_options(&phonemes, speaker_id, length_scale)
+    }
+
     pub fn synthesize_phonemes(
         &mut self,
         phonemes: &str,
         speaker_id: Option<i64>,
+    ) -> PiperResult<(Vec<f32>, u32)> {
+        self.synthesize_phonemes_with_options(phonemes, speaker_id, None)
+    }
+
+    pub fn synthesize_phonemes_with_options(
+        &mut self,
+        phonemes: &str,
+        speaker_id: Option<i64>,
+        length_scale: Option<f32>,
     ) -> PiperResult<(Vec<f32>, u32)> {
         let phonemes: String = phonemes.trim().nfd().collect();
         let samples = infer(
@@ -97,7 +116,7 @@ impl PiperModel {
             self.num_speakers,
             &phonemes,
             self.inference.noise_scale,
-            self.inference.length_scale,
+            length_scale.unwrap_or(self.inference.length_scale),
             self.inference.noise_w,
             speaker_id.unwrap_or(0),
         )?;
