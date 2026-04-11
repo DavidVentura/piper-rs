@@ -12,7 +12,12 @@ use std::path::Path;
 fn main() {
     let config_path = std::env::args().nth(1).expect("Please specify config path");
     let onnx_path = config_path.replace(".onnx.json", ".onnx");
-    let model = PiperModel::new(Path::new(&onnx_path), Path::new(&config_path), &piper_rs::Backend::Cpu).unwrap();
+    let model = PiperModel::new(
+        Path::new(&onnx_path),
+        Path::new(&config_path),
+        &piper_rs::Backend::Cpu,
+    )
+    .unwrap();
 
     match model.voices() {
         None => println!("Single-speaker model."),
