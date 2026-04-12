@@ -1,11 +1,13 @@
 mod kokoro;
 mod mms;
 mod piper;
+mod coqui_vits;
 
 #[cfg(feature = "japanese")]
 mod japanese;
 
 pub use kokoro::KokoroModel;
+pub use coqui_vits::CoquiVitsModel;
 pub use mms::MmsModel;
 pub use piper::PiperModel;
 
