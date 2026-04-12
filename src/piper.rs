@@ -8,7 +8,7 @@ use ort::value::Tensor;
 use serde::Deserialize;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::{build_session, espeak_phonemize, Backend, PiperError, PiperResult};
+use crate::{build_session, espeak_phonemize, vits_tokenize, Backend, PiperError, PiperResult};
 
 const BOS: char = '^';
 const EOS: char = '$';
@@ -73,6 +73,77 @@ impl PiperModel {
             num_speakers: raw.num_speakers,
             speaker_id_map: raw.speaker_id_map,
             phoneme_id_map: raw.phoneme_id_map,
+        })
+    }
+
+    /// Construct a PiperModel from a mimic3 model directory.
+    /// Reads the mimic3 JSON config + tokens.txt and maps them to Piper internals.
+    pub fn from_mimic3(
+        model_path: &Path,
+        config_path: &Path,
+        backend: &Backend,
+    ) -> PiperResult<Self> {
+        #[derive(Deserialize)]
+        struct Mimic3Audio {
+            sample_rate: u32,
+        }
+        #[derive(Deserialize)]
+        struct Mimic3Model {
+            n_speakers: u32,
+        }
+        #[derive(Deserialize)]
+        struct Mimic3Config {
+            audio: Mimic3Audio,
+            model: Mimic3Model,
+            text_language: String,
+        }
+
+        let file = File::open(config_path).map_err(|e| {
+            PiperError::FailedToLoadResource(format!(
+                "Failed to open config `{}`: {}",
+                config_path.display(),
+                e
+            ))
+        })?;
+        let raw: Mimic3Config = serde_json::from_reader(file).map_err(|e| {
+            PiperError::FailedToLoadResource(format!(
+                "Failed to parse config `{}`: {}",
+                config_path.display(),
+                e
+            ))
+        })?;
+
+        let config_dir = config_path.parent().ok_or_else(|| {
+            PiperError::FailedToLoadResource(format!(
+                "Config `{}` does not have a parent directory",
+                config_path.display()
+            ))
+        })?;
+        let token_to_id = vits_tokenize::load_tokens(&config_dir.join("tokens.txt"))?;
+
+        // Convert tokens.txt (String → i64) to phoneme_id_map (char → Vec<i64>).
+        // mimic3 tokens are all single characters.
+        let mut phoneme_id_map = HashMap::new();
+        for (token, id) in &token_to_id {
+            let mut chars = token.chars();
+            if let (Some(ch), None) = (chars.next(), chars.next()) {
+                phoneme_id_map.insert(ch, vec![*id]);
+            }
+        }
+
+        let session = build_session(model_path, backend)?;
+        Ok(Self {
+            session,
+            sample_rate: raw.audio.sample_rate,
+            espeak_voice: raw.text_language,
+            inference: InferenceConfig {
+                noise_scale: 0.667,
+                length_scale: 1.0,
+                noise_w: 0.8,
+            },
+            num_speakers: raw.model.n_speakers,
+            speaker_id_map: HashMap::new(),
+            phoneme_id_map,
         })
     }
 
