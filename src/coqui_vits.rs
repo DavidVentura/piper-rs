@@ -28,6 +28,12 @@ struct ModelArgsConfig {
 }
 
 #[derive(Default, Deserialize)]
+struct CharactersConfig {
+    #[serde(default)]
+    blank: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
 struct RawConfig {
     audio: AudioConfig,
     inference_noise_scale: Option<f32>,
@@ -35,6 +41,10 @@ struct RawConfig {
     length_scale: Option<f32>,
     #[serde(default)]
     model_args: ModelArgsConfig,
+    #[serde(default)]
+    add_blank: bool,
+    #[serde(default)]
+    characters: Option<CharactersConfig>,
 }
 
 pub struct CoquiVitsModel {
@@ -42,6 +52,7 @@ pub struct CoquiVitsModel {
     sample_rate: u32,
     token_to_id: HashMap<String, i64>,
     max_token_chars: usize,
+    blank_id: Option<i64>,
     language_id: i64,
     speaker_id_map: HashMap<String, i64>,
     default_speaker_id: Option<i64>,
@@ -50,6 +61,12 @@ pub struct CoquiVitsModel {
     noise_scale: f32,
     noise_scale_w: f32,
     length_scale: f32,
+}
+
+pub struct CoquiFrontendDebug {
+    pub normalized: String,
+    pub token_ids: Vec<i64>,
+    pub dropped: Vec<String>,
 }
 
 impl CoquiVitsModel {
@@ -107,11 +124,26 @@ impl CoquiVitsModel {
             None
         };
 
+        let blank_id = if raw.add_blank {
+            let blank_token = raw
+                .characters
+                .and_then(|c| c.blank)
+                .unwrap_or_else(|| "<BLNK>".to_string());
+            Some(*token_to_id.get(&blank_token).ok_or_else(|| {
+                PiperError::FailedToLoadResource(format!(
+                    "add_blank is true but blank token `{blank_token}` not found in tokens"
+                ))
+            })?)
+        } else {
+            None
+        };
+
         Ok(Self {
             session,
             sample_rate: raw.audio.sample_rate,
             token_to_id,
             max_token_chars,
+            blank_id,
             language_id,
             speaker_id_map,
             default_speaker_id,
@@ -179,6 +211,21 @@ impl CoquiVitsModel {
         ))
     }
 
+    pub fn token_ids(&self, text: &str) -> Vec<i64> {
+        self.text_to_ids(text)
+    }
+
+    pub fn debug_frontend(&self, text: &str) -> CoquiFrontendDebug {
+        let normalized = normalize_text(text, &self.token_to_id, self.max_token_chars);
+        let token_ids = self.text_to_ids(&normalized);
+        let dropped = collect_dropped_tokens(text, &self.token_to_id, self.max_token_chars);
+        CoquiFrontendDebug {
+            normalized,
+            token_ids,
+            dropped,
+        }
+    }
+
     pub fn voices(&self) -> Option<&HashMap<String, i64>> {
         if self.default_speaker_id.is_some() {
             Some(&self.speaker_id_map)
@@ -188,7 +235,11 @@ impl CoquiVitsModel {
     }
 
     fn text_to_ids(&self, text: &str) -> Vec<i64> {
-        tokenize_to_ids(text, &self.token_to_id, self.max_token_chars)
+        let ids = tokenize_to_ids(text, &self.token_to_id, self.max_token_chars);
+        match self.blank_id {
+            Some(blank_id) => intersperse(&ids, blank_id),
+            None => ids,
+        }
     }
 }
 
@@ -258,7 +309,10 @@ fn load_optional_id_map(path: &Path) -> PiperResult<HashMap<String, i64>> {
     })
 }
 
-fn resolve_language_id(language_code: &str, language_ids: &HashMap<String, i64>) -> PiperResult<i64> {
+fn resolve_language_id(
+    language_code: &str,
+    language_ids: &HashMap<String, i64>,
+) -> PiperResult<i64> {
     if language_ids.is_empty() {
         return Ok(0);
     }
@@ -280,12 +334,22 @@ fn resolve_language_id(language_code: &str, language_ids: &HashMap<String, i64>)
     )))
 }
 
+fn intersperse(ids: &[i64], blank_id: i64) -> Vec<i64> {
+    let mut result = Vec::with_capacity(ids.len() * 2 + 1);
+    result.push(blank_id);
+    for &id in ids {
+        result.push(id);
+        result.push(blank_id);
+    }
+    result
+}
+
 fn normalize_text(
     text: &str,
     token_to_id: &HashMap<String, i64>,
     max_token_chars: usize,
 ) -> String {
-    let normalized: String = text.nfc().collect();
+    let normalized: String = text.to_lowercase().nfc().collect();
     let mut out = String::new();
     let mut offset = 0;
 
@@ -312,7 +376,7 @@ fn tokenize_to_ids(
     token_to_id: &HashMap<String, i64>,
     max_token_chars: usize,
 ) -> Vec<i64> {
-    let normalized: String = text.nfc().collect();
+    let normalized: String = text.to_lowercase().nfc().collect();
     let mut ids = Vec::new();
     let mut offset = 0;
 
@@ -334,6 +398,32 @@ fn tokenize_to_ids(
     }
 
     ids
+}
+
+fn collect_dropped_tokens(
+    text: &str,
+    token_to_id: &HashMap<String, i64>,
+    max_token_chars: usize,
+) -> Vec<String> {
+    let normalized: String = text.to_lowercase().nfc().collect();
+    let mut dropped = Vec::new();
+    let mut offset = 0;
+
+    while offset < normalized.len() {
+        let remaining = &normalized[offset..];
+        let Some((_, matched_len)) = longest_token_match(remaining, token_to_id, max_token_chars)
+        else {
+            if let Some(ch) = remaining.chars().next() {
+                dropped.push(ch.to_string());
+                offset += ch.len_utf8();
+                continue;
+            }
+            break;
+        };
+        offset += matched_len;
+    }
+
+    dropped
 }
 
 fn longest_token_match<'a>(
