@@ -2,6 +2,7 @@ mod coqui_vits;
 mod kokoro;
 mod mms;
 mod piper;
+mod vits_tokenize;
 
 #[cfg(feature = "japanese")]
 mod japanese;
