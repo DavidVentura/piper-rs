@@ -234,6 +234,13 @@ fn main() {
                 "OFF"
             },
         )
+        // espeak-ng bakes PATH_ESPEAK_DATA from CMAKE_INSTALL_PREFIX, which would
+        // otherwise embed Cargo's absolute OUT_DIR in the final library and break
+        // reproducibility across different build paths. Override it with a stable
+        // relative fallback; consumers that care about the runtime data dir should
+        // pass it explicitly to espeak_Initialize.
+        .cflag("-UPATH_ESPEAK_DATA")
+        .cflag("-DPATH_ESPEAK_DATA=\\\"espeak-ng-data\\\"")
         .very_verbose(std::env::var("CMAKE_VERBOSE").is_ok()) // Not verbose by default
         .always_configure(false);
 
