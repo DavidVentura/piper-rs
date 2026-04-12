@@ -11,6 +11,67 @@ use serde::Deserialize;
 use crate::vits_tokenize;
 use crate::{build_session, Backend, PiperError, PiperResult};
 
+#[cfg(feature = "fst-normalization")]
+mod fst_normalize {
+    use rustfst::algorithms::{compose::compose, shortest_path};
+    use rustfst::prelude::*;
+
+    pub type RuleFst = VectorFst<TropicalWeight>;
+
+    pub fn load(path: &std::path::Path) -> Result<RuleFst, String> {
+        VectorFst::<TropicalWeight>::read(path)
+            .map_err(|e| format!("Failed to load FST `{}`: {}", path.display(), e))
+    }
+
+    /// Normalize text through a rule FST, matching kaldifst::TextNormalizer.
+    /// Each byte of the input becomes an arc label; output labels are
+    /// collected from the shortest path of the composed result.
+    pub fn normalize(text: &str, rule: &RuleFst) -> String {
+        let mut input_fst = VectorFst::<TropicalWeight>::new();
+        let mut s = input_fst.add_state();
+        input_fst.set_start(s).unwrap();
+
+        for &byte in text.as_bytes() {
+            let next = input_fst.add_state();
+            input_fst
+                .add_tr(
+                    s,
+                    Tr::new(byte as u32, byte as u32, TropicalWeight::one(), next),
+                )
+                .unwrap();
+            s = next;
+        }
+        input_fst.set_final(s, TropicalWeight::one()).unwrap();
+
+        let composed: VectorFst<TropicalWeight> = match compose(input_fst, rule.clone()) {
+            Ok(c) => c,
+            Err(_) => return text.to_string(),
+        };
+        let best: VectorFst<TropicalWeight> = match shortest_path(&composed) {
+            Ok(b) => b,
+            Err(_) => return text.to_string(),
+        };
+
+        let mut output_bytes = Vec::new();
+        let Some(mut s) = best.start() else {
+            return text.to_string();
+        };
+        loop {
+            let Ok(trs) = best.get_trs(s) else { break };
+            if trs.is_empty() {
+                break;
+            }
+            let tr = &trs[0];
+            if tr.olabel != 0 {
+                output_bytes.push(tr.olabel as u8);
+            }
+            s = tr.nextstate;
+        }
+
+        String::from_utf8(output_bytes).unwrap_or_else(|_| text.to_string())
+    }
+}
+
 const DEFAULT_NOISE_SCALE: f32 = 0.667;
 const DEFAULT_NOISE_SCALE_W: f32 = 0.8;
 const DEFAULT_LENGTH_SCALE: f32 = 1.0;
@@ -35,6 +96,8 @@ pub struct SherpaVitsModel {
     token_to_id: HashMap<String, i64>,
     blank_id: Option<i64>,
     lexicon: HashMap<String, Vec<String>>,
+    #[cfg(feature = "fst-normalization")]
+    rule_fst: Option<fst_normalize::RuleFst>,
 }
 
 impl SherpaVitsModel {
@@ -63,6 +126,15 @@ impl SherpaVitsModel {
 
         let token_to_id = vits_tokenize::load_tokens(&config_dir.join("tokens.txt"))?;
         let lexicon = load_lexicon(&config_dir.join("lexicon.txt"))?;
+        #[cfg(feature = "fst-normalization")]
+        let rule_fst = {
+            let fst_path = config_dir.join("rule.fst");
+            if fst_path.exists() {
+                Some(fst_normalize::load(&fst_path).map_err(PiperError::FailedToLoadResource)?)
+            } else {
+                None
+            }
+        };
         let session = build_session(model_path, backend)?;
 
         let blank_id = if raw.data.add_blank {
@@ -81,6 +153,8 @@ impl SherpaVitsModel {
             token_to_id,
             blank_id,
             lexicon,
+            #[cfg(feature = "fst-normalization")]
+            rule_fst,
         })
     }
 
@@ -110,13 +184,29 @@ impl SherpaVitsModel {
     }
 
     /// Convert text to a space-separated phoneme string via lexicon lookup.
+    /// When the `fst-normalization` feature is enabled and a rule.fst was
+    /// loaded, text is normalized through the FST first (numbers, dates, etc.).
     pub fn phonemize(&self, text: &str) -> PiperResult<String> {
-        Ok(lexicon_phonemize(text, &self.lexicon, &self.token_to_id))
+        let normalized = self.normalize_text(text);
+        Ok(lexicon_phonemize(
+            &normalized,
+            &self.lexicon,
+            &self.token_to_id,
+        ))
     }
 
     pub fn token_ids(&self, text: &str) -> Vec<i64> {
-        let phonemes = lexicon_phonemize(text, &self.lexicon, &self.token_to_id);
+        let normalized = self.normalize_text(text);
+        let phonemes = lexicon_phonemize(&normalized, &self.lexicon, &self.token_to_id);
         self.text_to_ids(&phonemes)
+    }
+
+    fn normalize_text(&self, text: &str) -> String {
+        #[cfg(feature = "fst-normalization")]
+        if let Some(ref rule) = self.rule_fst {
+            return fst_normalize::normalize(text, rule);
+        }
+        text.to_string()
     }
 
     pub fn voices(&self) -> Option<&HashMap<String, i64>> {
@@ -165,6 +255,15 @@ fn lexicon_phonemize(
         if let Some(phons) = lexicon.get(&key) {
             phonemes.extend(phons.iter().cloned());
             continue;
+        }
+
+        // Try lowercase (lexicon has lowercase Latin letters only)
+        if ch.is_ascii_uppercase() {
+            let lower = ch.to_lowercase().to_string();
+            if let Some(phons) = lexicon.get(&lower) {
+                phonemes.extend(phons.iter().cloned());
+                continue;
+            }
         }
 
         // Try normalized punctuation
