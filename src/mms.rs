@@ -20,6 +20,7 @@ pub struct MmsModel {
     sample_rate: u32,
     token_to_id: HashMap<String, i64>,
     max_token_chars: usize,
+    blank_id: Option<i64>,
 }
 
 impl MmsModel {
@@ -31,18 +32,26 @@ impl MmsModel {
             .max()
             .unwrap_or(1);
         let session = build_session(model_path, backend)?;
-        let sample_rate = session
-            .metadata()
-            .ok()
-            .and_then(|metadata| metadata.custom("sample_rate"))
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(DEFAULT_SAMPLE_RATE);
+        let (sample_rate, blank_id) = {
+            let metadata = session.metadata().ok();
+            let sample_rate = metadata
+                .as_ref()
+                .and_then(|m| m.custom("sample_rate"))
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(DEFAULT_SAMPLE_RATE);
+            let add_blank = metadata
+                .as_ref()
+                .and_then(|m| m.custom("add_blank"))
+                .is_some_and(|v| v == "1" || v == "true");
+            (sample_rate, if add_blank { Some(0i64) } else { None })
+        };
 
         Ok(Self {
             session,
             sample_rate,
             token_to_id,
             max_token_chars,
+            blank_id,
         })
     }
 
@@ -85,12 +94,20 @@ impl MmsModel {
         ))
     }
 
+    pub fn token_ids(&self, text: &str) -> Vec<i64> {
+        self.text_to_ids(text)
+    }
+
     pub fn voices(&self) -> Option<&HashMap<String, i64>> {
         None
     }
 
     fn text_to_ids(&self, text: &str) -> Vec<i64> {
-        tokenize_to_ids(text, &self.token_to_id, self.max_token_chars)
+        let ids = tokenize_to_ids(text, &self.token_to_id, self.max_token_chars);
+        match self.blank_id {
+            Some(blank_id) => intersperse(&ids, blank_id),
+            None => ids,
+        }
     }
 }
 
@@ -148,12 +165,22 @@ fn load_tokens(tokens_path: &Path) -> PiperResult<HashMap<String, i64>> {
     Ok(token_to_id)
 }
 
+fn intersperse(ids: &[i64], blank_id: i64) -> Vec<i64> {
+    let mut result = Vec::with_capacity(ids.len() * 2 + 1);
+    result.push(blank_id);
+    for &id in ids {
+        result.push(id);
+        result.push(blank_id);
+    }
+    result
+}
+
 fn normalize_text(
     text: &str,
     token_to_id: &HashMap<String, i64>,
     max_token_chars: usize,
 ) -> String {
-    let normalized: String = text.nfc().collect();
+    let normalized: String = text.to_lowercase().nfc().collect();
     let mut out = String::new();
     let mut offset = 0;
 
@@ -180,7 +207,7 @@ fn tokenize_to_ids(
     token_to_id: &HashMap<String, i64>,
     max_token_chars: usize,
 ) -> Vec<i64> {
-    let normalized: String = text.nfc().collect();
+    let normalized: String = text.to_lowercase().nfc().collect();
     let mut ids = Vec::new();
     let mut offset = 0;
 
