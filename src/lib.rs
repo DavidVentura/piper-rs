@@ -2,6 +2,7 @@ mod coqui_vits;
 mod kokoro;
 mod mms;
 mod piper;
+mod sherpa_vits;
 mod vits_tokenize;
 
 #[cfg(feature = "japanese")]
@@ -11,6 +12,7 @@ pub use coqui_vits::CoquiVitsModel;
 pub use kokoro::KokoroModel;
 pub use mms::MmsModel;
 pub use piper::PiperModel;
+pub use sherpa_vits::SherpaVitsModel;
 
 #[derive(Debug)]
 pub enum PiperError {
