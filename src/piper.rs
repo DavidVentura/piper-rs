@@ -223,6 +223,7 @@ fn phonemes_to_ids(phoneme_id_map: &HashMap<char, Vec<i64>>, phonemes: &str) -> 
 
     let mut ids = Vec::with_capacity((phonemes.len() + 1) * 2);
     ids.push(bos_id);
+    ids.push(pad_id);
     for ch in phonemes.chars() {
         if let Some(id) = phoneme_id_map.get(&ch).and_then(|v| v.first()) {
             ids.push(*id);
