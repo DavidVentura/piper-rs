@@ -25,7 +25,9 @@ fn main() {
     )
     .unwrap();
 
-    let text = "Hello! This file was created by piper-rs.";
+    //let text = "Chào Hoành, cậu thế nào rồi?\n";
+    //let text = "Hello! This file was created by piper-rs.";
+    let text = "Hallo, wie geht's dir?";
     let (samples, sample_rate) = model.synthesize(text, speaker_id).unwrap();
 
     let samples_i16: Vec<i16> = samples

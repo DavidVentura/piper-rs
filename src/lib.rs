@@ -104,6 +104,16 @@ fn build_session(
         })
 }
 
+/// Normalize audio samples to fill the [-1, 1] range, matching the original
+/// piper C++ behavior which divides by peak amplitude before int16 conversion.
+fn normalize_audio(samples: &mut [f32]) {
+    let peak = samples.iter().fold(0.01f32, |m, s| m.max(s.abs()));
+    let scale = 1.0 / peak;
+    for s in samples.iter_mut() {
+        *s *= scale;
+    }
+}
+
 fn espeak_phonemize(text: &str, voice: &str) -> PiperResult<String> {
     use unicode_normalization::UnicodeNormalization;
     espeak_rs::text_to_phonemes(text, voice, None)

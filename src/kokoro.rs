@@ -191,7 +191,9 @@ fn infer(
         .try_extract_tensor::<f32>()
         .map_err(|e| PiperError::InferenceError(format!("Failed to extract output: {}", e)))?;
 
-    Ok(audio.to_vec())
+    let mut samples = audio.to_vec();
+    crate::normalize_audio(&mut samples);
+    Ok(samples)
 }
 
 /// Kokoro v1.0 phoneme vocabulary (from hexgrad/Kokoro-82M config.json)

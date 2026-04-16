@@ -362,5 +362,7 @@ fn infer(session: &mut Session, ids: &[i64], speed: f32) -> PiperResult<Vec<f32>
         .try_extract_tensor::<f32>()
         .map_err(|e| PiperError::InferenceError(format!("Failed to extract output: {}", e)))?;
 
-    Ok(audio.to_vec())
+    let mut samples = audio.to_vec();
+    crate::normalize_audio(&mut samples);
+    Ok(samples)
 }
