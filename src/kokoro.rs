@@ -82,6 +82,18 @@ impl KokoroModel {
             if let Some(ref mut dict) = self.japanese_dict {
                 return crate::japanese::phonemize(text, dict);
             }
+
+            return Err(PiperError::PhonemizationError(
+                "Japanese Kokoro models require `load_japanese_dict(...)` before synthesis"
+                    .to_string(),
+            ));
+        }
+
+        #[cfg(not(feature = "japanese"))]
+        if self.espeak_voice == "ja" {
+            return Err(PiperError::PhonemizationError(
+                "Japanese Kokoro models require the `japanese` feature".to_string(),
+            ));
         }
 
         espeak_phonemize(text, &self.espeak_voice)

@@ -36,20 +36,30 @@ struct RawConfig {
     audio: AudioConfig,
     espeak: ESpeakConfig,
     inference: InferenceConfig,
+    #[serde(default = "default_phoneme_type")]
+    phoneme_type: String,
     num_speakers: u32,
     #[serde(default)]
     speaker_id_map: HashMap<String, i64>,
-    phoneme_id_map: HashMap<char, Vec<i64>>,
+    phoneme_id_map: HashMap<String, Vec<i64>>,
 }
 
 pub struct PiperModel {
     session: Session,
     sample_rate: u32,
     espeak_voice: String,
+    phoneme_type: String,
     inference: InferenceConfig,
     num_speakers: u32,
     speaker_id_map: HashMap<String, i64>,
-    phoneme_id_map: HashMap<char, Vec<i64>>,
+    phoneme_id_map: HashMap<String, Vec<i64>>,
+}
+
+pub struct PiperFrontendDebug {
+    pub phoneme_type: String,
+    pub phonemes: String,
+    pub tokens: Vec<String>,
+    pub token_ids: Vec<i64>,
 }
 
 impl PiperModel {
@@ -69,6 +79,7 @@ impl PiperModel {
             session,
             sample_rate: raw.audio.sample_rate,
             espeak_voice: raw.espeak.voice,
+            phoneme_type: raw.phoneme_type,
             inference: raw.inference,
             num_speakers: raw.num_speakers,
             speaker_id_map: raw.speaker_id_map,
@@ -121,14 +132,10 @@ impl PiperModel {
         })?;
         let token_to_id = vits_tokenize::load_tokens(&config_dir.join("tokens.txt"))?;
 
-        // Convert tokens.txt (String → i64) to phoneme_id_map (char → Vec<i64>).
-        // mimic3 tokens are all single characters.
+        // Convert tokens.txt (String → i64) to phoneme_id_map (String → Vec<i64>).
         let mut phoneme_id_map = HashMap::new();
         for (token, id) in &token_to_id {
-            let mut chars = token.chars();
-            if let (Some(ch), None) = (chars.next(), chars.next()) {
-                phoneme_id_map.insert(ch, vec![*id]);
-            }
+            phoneme_id_map.insert(token.clone(), vec![*id]);
         }
 
         let session = build_session(model_path, backend)?;
@@ -136,6 +143,7 @@ impl PiperModel {
             session,
             sample_rate: raw.audio.sample_rate,
             espeak_voice: raw.text_language,
+            phoneme_type: default_phoneme_type(),
             inference: InferenceConfig {
                 noise_scale: 0.667,
                 length_scale: 1.0,
@@ -152,7 +160,7 @@ impl PiperModel {
         text: &str,
         speaker_id: Option<i64>,
     ) -> PiperResult<(Vec<f32>, u32)> {
-        let phonemes = espeak_phonemize(text, &self.espeak_voice)?;
+        let phonemes = self.phonemize(text)?;
         self.synthesize_phonemes(&phonemes, speaker_id)
     }
 
@@ -162,7 +170,7 @@ impl PiperModel {
         speaker_id: Option<i64>,
         length_scale: Option<f32>,
     ) -> PiperResult<(Vec<f32>, u32)> {
-        let phonemes = espeak_phonemize(text, &self.espeak_voice)?;
+        let phonemes = self.phonemize(text)?;
         self.synthesize_phonemes_with_options(&phonemes, speaker_id, length_scale)
     }
 
@@ -203,29 +211,62 @@ impl PiperModel {
     }
 
     pub fn phonemize(&self, text: &str) -> PiperResult<String> {
-        espeak_phonemize(text, &self.espeak_voice)
+        match self.phoneme_type.as_str() {
+            "espeak" => espeak_phonemize(text, &self.espeak_voice),
+            "text" => Ok(text.to_string()),
+            other => Err(PiperError::PhonemizationError(format!(
+                "Unsupported Piper phoneme_type `{other}`"
+            ))),
+        }
+    }
+
+    pub fn debug_frontend(&self, text: &str) -> PiperResult<PiperFrontendDebug> {
+        let phonemes = self.phonemize(text)?;
+        self.debug_phoneme_string(&phonemes)
+    }
+
+    pub fn debug_phoneme_string(&self, phonemes: &str) -> PiperResult<PiperFrontendDebug> {
+        let tokens = phoneme_string_to_tokens(&self.phoneme_id_map, &phonemes);
+        let token_ids = tokens
+            .iter()
+            .filter_map(|token| self.phoneme_id_map.get(token).and_then(|ids| ids.first()))
+            .copied()
+            .collect();
+
+        Ok(PiperFrontendDebug {
+            phoneme_type: self.phoneme_type.clone(),
+            phonemes: phonemes.to_string(),
+            tokens,
+            token_ids,
+        })
     }
 }
 
-fn phonemes_to_ids(phoneme_id_map: &HashMap<char, Vec<i64>>, phonemes: &str) -> Vec<i64> {
+fn default_phoneme_type() -> String {
+    "espeak".to_string()
+}
+
+fn phonemes_to_ids(phoneme_id_map: &HashMap<String, Vec<i64>>, phonemes: &str) -> Vec<i64> {
     let pad_id = *phoneme_id_map
-        .get(&PAD)
+        .get(&PAD.to_string())
         .and_then(|v| v.first())
         .unwrap_or(&0);
     let bos_id = *phoneme_id_map
-        .get(&BOS)
+        .get(&BOS.to_string())
         .and_then(|v| v.first())
         .unwrap_or(&0);
     let eos_id = *phoneme_id_map
-        .get(&EOS)
+        .get(&EOS.to_string())
         .and_then(|v| v.first())
         .unwrap_or(&0);
 
     let mut ids = Vec::with_capacity((phonemes.len() + 1) * 2);
     ids.push(bos_id);
     ids.push(pad_id);
-    for ch in phonemes.chars() {
-        if let Some(id) = phoneme_id_map.get(&ch).and_then(|v| v.first()) {
+
+    let tokens = phoneme_string_to_tokens(phoneme_id_map, phonemes);
+    for token in tokens {
+        if let Some(id) = phoneme_id_map.get(&token).and_then(|v| v.first()) {
             ids.push(*id);
             ids.push(pad_id);
         }
@@ -234,9 +275,63 @@ fn phonemes_to_ids(phoneme_id_map: &HashMap<char, Vec<i64>>, phonemes: &str) -> 
     ids
 }
 
+fn phoneme_string_to_tokens(
+    phoneme_id_map: &HashMap<String, Vec<i64>>,
+    phonemes: &str,
+) -> Vec<String> {
+    let whitespace_split: Vec<&str> = phonemes.split_whitespace().collect();
+    if !whitespace_split.is_empty()
+        && whitespace_split
+            .iter()
+            .all(|token| phoneme_id_map.contains_key(*token))
+    {
+        return whitespace_split
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect();
+    }
+
+    let chars: Vec<char> = phonemes.chars().collect();
+    let max_token_chars = phoneme_id_map
+        .keys()
+        .map(|token| token.chars().count())
+        .max()
+        .unwrap_or(1);
+    let mut tokens = Vec::new();
+    let mut idx = 0usize;
+
+    while idx < chars.len() {
+        if chars[idx].is_whitespace() {
+            idx += 1;
+            continue;
+        }
+
+        let remaining = chars.len() - idx;
+        let max_len = remaining.min(max_token_chars);
+        let mut matched = None;
+
+        for len in (1..=max_len).rev() {
+            let candidate: String = chars[idx..idx + len].iter().collect();
+            if phoneme_id_map.contains_key(&candidate) {
+                matched = Some(candidate);
+                break;
+            }
+        }
+
+        if let Some(token) = matched {
+            idx += token.chars().count();
+            tokens.push(token);
+        } else {
+            idx += 1;
+        }
+    }
+
+    tokens
+}
+
 fn infer(
     session: &mut Session,
-    phoneme_id_map: &HashMap<char, Vec<i64>>,
+    phoneme_id_map: &HashMap<String, Vec<i64>>,
     num_speakers: u32,
     phonemes: &str,
     noise_scale: f32,

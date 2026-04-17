@@ -116,9 +116,17 @@ fn normalize_audio(samples: &mut [f32]) {
 
 fn espeak_phonemize(text: &str, voice: &str) -> PiperResult<String> {
     use unicode_normalization::UnicodeNormalization;
-    espeak_rs::text_to_phonemes(text, voice, None)
+    espeak_rs::text_to_phonemes(text, normalize_espeak_voice(voice), None)
         .map(|phonemes| phonemes.join(" ").nfd().collect())
         .map_err(|e| PiperError::PhonemizationError(format!("{e}")))
+}
+
+fn normalize_espeak_voice(voice: &str) -> &str {
+    match voice {
+        // The bucket catalog maps app language `zh` to the Mandarin espeak dictionary `cmn`.
+        "zh" => "cmn",
+        _ => voice,
+    }
 }
 
 #[cfg(test)]
