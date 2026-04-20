@@ -301,11 +301,6 @@ fn phoneme_string_to_tokens(
     let mut idx = 0usize;
 
     while idx < chars.len() {
-        if chars[idx].is_whitespace() {
-            idx += 1;
-            continue;
-        }
-
         let remaining = chars.len() - idx;
         let max_len = remaining.min(max_token_chars);
         let mut matched = None;

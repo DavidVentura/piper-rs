@@ -189,9 +189,16 @@ fn phonemize_text_segment(text: &str, phoneme_mode: i32) -> ESpeakResult<String>
     let mut phonemes = String::new();
 
     // espeak advances this pointer clause by clause, setting it to null when done.
-    let mut text_ptr: *const c_char = text_cstr.as_ptr();
+    // We track the byte offset into the original buffer so that after each call
+    // we can recover the punctuation espeak consumed (commas, periods, etc.)
+    // that its IPA output omits but piper's phoneme_id_map expects as a token.
+    let base_ptr: *const c_char = text_cstr.as_ptr();
+    let original_bytes = text_cstr.as_bytes();
+    let mut text_ptr: *const c_char = base_ptr;
 
     while !text_ptr.is_null() {
+        let old_offset = (unsafe { text_ptr.offset_from(base_ptr) }) as usize;
+
         let clause = unsafe {
             let res = espeak_rs_sys::espeak_TextToPhonemes(
                 &mut text_ptr as *mut *const c_char as *mut *const c_void,
@@ -204,15 +211,39 @@ fn phonemize_text_segment(text: &str, phoneme_mode: i32) -> ESpeakResult<String>
             CStr::from_ptr(res).to_string_lossy().into_owned()
         };
 
+        let new_offset = if text_ptr.is_null() {
+            original_bytes.len()
+        } else {
+            (unsafe { text_ptr.offset_from(base_ptr) }) as usize
+        };
+
         let clause = strip_lang_switches(&clause);
         if clause.is_empty() {
             continue;
         }
 
         phonemes.push_str(&clause);
+
+        if old_offset < new_offset && new_offset <= original_bytes.len() {
+            if let Some(p) = last_clause_punct(&original_bytes[old_offset..new_offset]) {
+                phonemes.push(p);
+                phonemes.push(' ');
+            }
+        }
     }
 
     Ok(phonemes)
+}
+
+/// espeak's IPA output for a clause doesn't contain the punctuation that
+/// terminated it, and `text_ptr` is advanced one character past the start of
+/// the next clause, so the terminator sits in the middle of the consumed
+/// slice. Find the last punctuation char anywhere in the slice.
+fn last_clause_punct(consumed: &[u8]) -> Option<char> {
+    let s = std::str::from_utf8(consumed).ok()?;
+    s.chars()
+        .rev()
+        .find(|ch| matches!(ch, ',' | ';' | ':' | '.' | '!' | '?'))
 }
 
 fn phonemize_paragraph(paragraph: &str, phoneme_mode: i32) -> ESpeakResult<Vec<PhonemeChunk>> {
