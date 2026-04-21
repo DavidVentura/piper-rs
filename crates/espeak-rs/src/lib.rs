@@ -1,12 +1,7 @@
-use std::env;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::mem;
-use std::path::PathBuf;
-use std::ptr;
-use std::sync::OnceLock;
-
-const PIPER_ESPEAKNG_DATA_DIRECTORY: &str = "PIPER_ESPEAKNG_DATA_DIRECTORY";
-const ESPEAKNG_DATA_DIR_NAME: &str = "espeak-ng-data";
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct ESpeakError(pub String);
@@ -35,57 +30,51 @@ pub struct PhonemeChunk {
 }
 
 static ESPEAK_INIT: OnceLock<ESpeakResult<()>> = OnceLock::new();
+// espeak-ng uses process-global state (active voice, text cursor, phoneme
+// buffer) and is not thread-safe. Serialize every call into the C library.
+static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
 
-fn init_espeak() -> ESpeakResult<()> {
-    let data_dir = locate_espeak_data();
-    // Keep the CString alive until after Initialize returns.
-    let path_cstr = data_dir
-        .as_ref()
-        .and_then(|p| CString::new(p.to_string_lossy().as_ref()).ok());
-    let path_ptr = path_cstr.as_ref().map_or(ptr::null(), |c| c.as_ptr());
+/// Initialize eSpeak-ng with the given data directory. Safe to call multiple
+/// times — only the first call initializes the library; subsequent calls
+/// return the stored result and ignore their `data_dir` argument.
+pub fn init(data_dir: &Path) -> ESpeakResult<()> {
+    ESPEAK_INIT.get_or_init(|| init_espeak(data_dir)).clone()
+}
+
+fn init_espeak(data_dir: &Path) -> ESpeakResult<()> {
+    let path_cstr = CString::new(data_dir.to_string_lossy().as_bytes()).map_err(|_| {
+        ESpeakError(format!(
+            "eSpeak data directory path `{}` contains a null byte",
+            data_dir.display()
+        ))
+    })?;
 
     let sample_rate = unsafe {
         espeak_rs_sys::espeak_Initialize(
             espeak_rs_sys::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
             0,
-            path_ptr,
+            path_cstr.as_ptr(),
             espeak_rs_sys::espeakINITIALIZE_DONT_EXIT as i32,
         )
     };
 
     if sample_rate <= 0 {
         Err(ESpeakError(format!(
-            "Failed to initialize eSpeak-ng (code {sample_rate}). \
-            Try setting `{PIPER_ESPEAKNG_DATA_DIRECTORY}` to the directory containing `{ESPEAKNG_DATA_DIR_NAME}`."
+            "Failed to initialize eSpeak-ng (code {sample_rate}) with data dir `{}`",
+            data_dir.display()
         )))
     } else {
         Ok(())
     }
 }
 
-fn locate_espeak_data() -> Option<PathBuf> {
-    // 1. Environment variable
-    if let Ok(dir) = env::var(PIPER_ESPEAKNG_DATA_DIRECTORY) {
-        let p = PathBuf::from(dir);
-        if p.join(ESPEAKNG_DATA_DIR_NAME).exists() {
-            return Some(p);
-        }
-    }
-    // 2. Current working directory
-    if let Ok(cwd) = env::current_dir() {
-        if cwd.join(ESPEAKNG_DATA_DIR_NAME).exists() {
-            return Some(cwd);
-        }
-    }
-    // 3. Directory of the current executable
-    if let Ok(exe) = env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            if dir.join(ESPEAKNG_DATA_DIR_NAME).exists() {
-                return Some(dir.to_path_buf());
-            }
-        }
-    }
-    None
+fn ensure_initialized() -> ESpeakResult<()> {
+    ESPEAK_INIT
+        .get()
+        .ok_or_else(|| {
+            ESpeakError("eSpeak-ng not initialized; call espeak_rs::init(data_dir) first".into())
+        })?
+        .clone()
 }
 
 /// Strip inline language-switch markers of the form `(xx)` that espeak inserts
@@ -292,11 +281,15 @@ pub fn text_to_phoneme_chunks(
     language: &str,
     phoneme_separator: Option<char>,
 ) -> ESpeakResult<Vec<PhonemeChunk>> {
-    // Ensure the library is initialised exactly once.
-    ESPEAK_INIT
-        .get_or_init(init_espeak)
-        .as_ref()
-        .map_err(|e| e.clone())?;
+    ensure_initialized()?;
+
+    // Hold the global espeak lock for the entire voice-set + phonemize window.
+    // Releasing between `espeak_SetVoiceByName` and the subsequent
+    // `espeak_TextToPhonemes` calls would let another thread flip the active
+    // voice mid-clause.
+    let _guard = ESPEAK_LOCK
+        .lock()
+        .map_err(|_| ESpeakError("espeak global mutex poisoned".into()))?;
 
     let lang_cstr = CString::new(language)
         .map_err(|_| ESpeakError("Language name contains a null byte".into()))?;
@@ -341,8 +334,16 @@ mod tests {
     const TEXT_ALICE: &str =
         "Who are you? said the Caterpillar. Replied Alice , rather shyly, I hardly know, sir!";
 
+    fn init_for_tests() {
+        let dir = std::env::var_os("PIPER_ESPEAKNG_DATA_DIRECTORY").expect(
+            "Set PIPER_ESPEAKNG_DATA_DIRECTORY to the directory containing `espeak-ng-data/` to run these tests",
+        );
+        init(Path::new(&dir)).expect("failed to initialize espeak for tests");
+    }
+
     #[test]
     fn test_basic_en() -> ESpeakResult<()> {
+        init_for_tests();
         let phonemes = text_to_phonemes("test", "en-US", None)?.join("");
         assert_eq!(phonemes, "tˈɛst.");
         Ok(())
@@ -350,6 +351,7 @@ mod tests {
 
     #[test]
     fn test_it_splits_sentences() -> ESpeakResult<()> {
+        init_for_tests();
         let phonemes = text_to_phonemes(TEXT_ALICE, "en-US", None)?;
         assert_eq!(phonemes.len(), 3);
         Ok(())
@@ -357,6 +359,7 @@ mod tests {
 
     #[test]
     fn test_it_adds_phoneme_separator() -> ESpeakResult<()> {
+        init_for_tests();
         let phonemes = text_to_phonemes("test", "en-US", Some('_'))?.join("");
         assert_eq!(phonemes, "t_ˈɛ_s_t.");
         Ok(())
@@ -364,6 +367,7 @@ mod tests {
 
     #[test]
     fn test_it_preserves_clause_breakers() -> ESpeakResult<()> {
+        init_for_tests();
         let phonemes = text_to_phonemes(TEXT_ALICE, "en-US", None)?.join("");
         for c in ['.', ',', '?', '!'] {
             assert!(phonemes.contains(c), "Clause breaker `{c}` not preserved");
@@ -373,6 +377,7 @@ mod tests {
 
     #[test]
     fn test_arabic() -> ESpeakResult<()> {
+        init_for_tests();
         let phonemes = text_to_phonemes("مَرْحَبَاً بِكَ أَيُّهَا الْرَّجُلْ", "ar", None)?.join("");
         assert_eq!(phonemes, "mˈarħabˌaː bikˌa ʔaˈiːuhˌaː alrrˈadʒul.");
         Ok(())
@@ -380,6 +385,7 @@ mod tests {
 
     #[test]
     fn test_lang_switch_markers_stripped() -> ESpeakResult<()> {
+        init_for_tests();
         // Mixed-language text: espeak inserts (en)/(ar) markers; we always strip them.
         let phonemes = text_to_phonemes("Hello معناها مرحباً", "ar", None)?.join("");
         assert!(!phonemes.contains("(en)"));
@@ -389,6 +395,7 @@ mod tests {
 
     #[test]
     fn test_line_splitting() -> ESpeakResult<()> {
+        init_for_tests();
         let phonemes = text_to_phonemes("Hello\nThere\nAnd\nWelcome", "en-US", None)?;
         assert_eq!(phonemes.len(), 1);
         Ok(())
@@ -434,6 +441,7 @@ mod tests {
 
     #[test]
     fn test_text_to_phoneme_chunks_upgrades_sentence_to_paragraph() -> ESpeakResult<()> {
+        init_for_tests();
         let chunks = text_to_phoneme_chunks("Hello.\nThere", "en-US", None)?;
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].boundary_after, BoundaryAfter::Paragraph);
@@ -443,6 +451,7 @@ mod tests {
 
     #[test]
     fn test_text_to_phoneme_chunks_marks_sentence_boundaries_in_paragraph() -> ESpeakResult<()> {
+        init_for_tests();
         let chunks = text_to_phoneme_chunks(
             "this is a word. this is another word. this is yet a third word",
             "en-US",

@@ -35,7 +35,7 @@ impl std::error::Error for PiperError {}
 
 pub type PiperResult<T> = Result<T, PiperError>;
 
-pub use espeak_rs::{BoundaryAfter, PhonemeChunk};
+pub use espeak_rs::{init as init_espeak, BoundaryAfter, PhonemeChunk};
 
 pub enum Backend {
     Cpu,
