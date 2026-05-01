@@ -209,6 +209,21 @@ fn main() {
 
     let mut config = Config::new(&espeak_dst);
 
+    for var in [
+        "CMAKE_TOOLCHAIN_FILE",
+        "CMAKE_SYSTEM_NAME",
+        "CMAKE_SYSTEM_PROCESSOR",
+        "CMAKE_C_COMPILER",
+        "CMAKE_CXX_COMPILER",
+        "ANDROID_ABI",
+        "ANDROID_PLATFORM",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+        if let Ok(value) = std::env::var(var) {
+            config.define(var, &value);
+        }
+    }
+
     config.define(
         "BUILD_SHARED_LIBS",
         if build_shared_libs { "ON" } else { "OFF" },
