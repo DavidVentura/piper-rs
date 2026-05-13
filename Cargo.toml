@@ -13,6 +13,9 @@ repository = "https://github.com/thewh1teagle/piper-rs"
 [dependencies]
 espeak-rs = { path = "crates/espeak-rs", version = "0.1.9", default-features = false }
 mucab = { git = "https://github.com/DavidVentura/Mucab.git", optional = true }
+#mnn-sys = { path = "../mnn-sys", optional = true }
+mnn-sys = { git = "https://github.com/DavidVentura/mnn-sys", optional = true }
+log = "0.4"
 ndarray = "0.16.1"
 ndarray-npy = "0.9"
 serde = { version = "1.0.160", features = ["derive"] }
@@ -28,3 +31,4 @@ rodio = "0.19.0"
 default = ["japanese", "fst-normalization"]
 japanese = ["dep:mucab"]
 fst-normalization = ["dep:rustfst"]
+mnn = ["dep:mnn-sys"]

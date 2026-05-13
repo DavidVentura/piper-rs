@@ -742,6 +742,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnn-sys"
+version = "0.1.0"
+source = "git+https://github.com/DavidVentura/mnn-sys#5166a57c85bc5b5999f758056c5e82d0ac19a114"
+dependencies = [
+ "bindgen 0.69.5",
+ "cc",
+ "cmake",
+ "ndarray 0.16.1",
+]
+
+[[package]]
 name = "mucab"
 version = "0.1.0"
 source = "git+https://github.com/DavidVentura/Mucab.git#d65aafbb0c0b83c7aa58eb4e1e3c9f54c05bd48f"
@@ -1036,6 +1047,8 @@ name = "piper-rs"
 version = "0.1.9"
 dependencies = [
  "espeak-rs",
+ "log",
+ "mnn-sys",
  "mucab",
  "ndarray 0.16.1",
  "ndarray-npy",

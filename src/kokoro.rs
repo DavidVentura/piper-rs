@@ -108,7 +108,7 @@ impl KokoroModel {
     }
 }
 
-fn load_voices(
+pub(crate) fn load_voices(
     voices_path: &Path,
 ) -> PiperResult<(HashMap<i64, Array2<f32>>, HashMap<String, i64>)> {
     let file = File::open(voices_path).map_err(|e| {
@@ -149,7 +149,7 @@ fn load_voices(
     Ok((styles, speaker_id_map))
 }
 
-fn phonemes_to_ids(vocab: &HashMap<char, i64>, phonemes: &str) -> Vec<i64> {
+pub(crate) fn phonemes_to_ids(vocab: &HashMap<char, i64>, phonemes: &str) -> Vec<i64> {
     let mut ids = Vec::with_capacity(phonemes.len() + 2);
     ids.push(0);
     for ch in phonemes.chars() {
@@ -209,7 +209,7 @@ fn infer(
 }
 
 /// Kokoro v1.0 phoneme vocabulary (from hexgrad/Kokoro-82M config.json)
-fn kokoro_vocab() -> HashMap<char, i64> {
+pub(crate) fn kokoro_vocab() -> HashMap<char, i64> {
     [
         (';', 1),
         (':', 2),

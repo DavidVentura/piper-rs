@@ -1,5 +1,7 @@
 mod coqui_vits;
 mod kokoro;
+#[cfg(feature = "mnn")]
+mod kokoro_mnn;
 mod mms;
 mod piper;
 mod sherpa_vits;
@@ -10,6 +12,8 @@ mod japanese;
 
 pub use coqui_vits::CoquiVitsModel;
 pub use kokoro::KokoroModel;
+#[cfg(feature = "mnn")]
+pub use kokoro_mnn::KokoroMnnModel;
 pub use mms::MmsModel;
 pub use piper::PiperModel;
 pub use sherpa_vits::SherpaVitsModel;
