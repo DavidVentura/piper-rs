@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use mnn_sys::{InferenceConfig, MemoryMode, ModuleEngine, NamedInput, TensorData};
@@ -9,9 +9,6 @@ use crate::{espeak_phonemize, PiperError, PiperResult};
 
 pub struct KokoroMnnModel {
     engine: ModuleEngine,
-    model_path: PathBuf,
-    config: InferenceConfig,
-    engine_needs_reset: bool,
     espeak_voice: String,
     vocab: HashMap<char, i64>,
     voices: HashMap<i64, Array2<f32>>,
@@ -43,9 +40,6 @@ impl KokoroMnnModel {
 
         Ok(Self {
             engine,
-            model_path: model_path.to_path_buf(),
-            config,
-            engine_needs_reset: false,
             espeak_voice: espeak_voice.to_string(),
             vocab: crate::kokoro::kokoro_vocab(),
             voices,
@@ -80,15 +74,6 @@ impl KokoroMnnModel {
         speaker_id: Option<i64>,
         speed: Option<f32>,
     ) -> PiperResult<(Vec<f32>, u32)> {
-        if self.engine_needs_reset {
-            let reload_started_at = Instant::now();
-            self.engine = load_engine(&self.model_path, &self.config)?;
-            log::info!(
-                "kokoro_mnn.module_reload: took_ms={}",
-                reload_started_at.elapsed().as_millis()
-            );
-            self.engine_needs_reset = false;
-        }
         let samples = infer_mnn(
             &self.engine,
             &self.vocab,
@@ -96,9 +81,7 @@ impl KokoroMnnModel {
             phonemes,
             speed.unwrap_or(1.0),
             speaker_id.unwrap_or(0),
-        );
-        self.engine_needs_reset = true;
-        let samples = samples?;
+        )?;
         Ok((samples, 24000))
     }
 
@@ -177,6 +160,7 @@ fn infer_mnn(
     let style = style_row.into_raw_vec_and_offset().0;
     let speed_buf = [speed];
 
+    let started_at = Instant::now();
     let outputs = engine
         .run_named_dynamic(
             &[
@@ -206,5 +190,20 @@ fn infer_mnn(
         .ok_or_else(|| PiperError::InferenceError("MNN returned no waveform output".to_string()))?
         .data;
     crate::normalize_audio(&mut samples);
+    let inference_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+    let audio_ms = samples.len() as f64 * 1000.0 / 24000.0;
+    let rtf = if audio_ms > 0.0 {
+        inference_ms / audio_ms
+    } else {
+        0.0
+    };
+    log::info!(
+        "kokoro_mnn.inference: took_ms={:.1} audio_ms={:.0} rtf={:.3} samples={} tokens={}",
+        inference_ms,
+        audio_ms,
+        rtf,
+        samples.len(),
+        token_count
+    );
     Ok(samples)
 }

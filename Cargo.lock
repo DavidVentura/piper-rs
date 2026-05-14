@@ -744,7 +744,7 @@ dependencies = [
 [[package]]
 name = "mnn-sys"
 version = "0.1.0"
-source = "git+https://github.com/DavidVentura/mnn-sys#5166a57c85bc5b5999f758056c5e82d0ac19a114"
+source = "git+https://github.com/DavidVentura/mnn-sys#4028e068bc907913371801ae86475cc2a4c50ae5"
 dependencies = [
  "bindgen 0.69.5",
  "cc",
