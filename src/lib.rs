@@ -1,22 +1,30 @@
 mod coqui_vits;
+mod cotovia_vits;
+mod gl_g2p;
 mod kokoro;
 #[cfg(feature = "mnn")]
 mod kokoro_mnn;
 mod mms;
 mod piper;
 mod sherpa_vits;
+#[cfg(feature = "mnn")]
+mod supertonic3_mnn;
 mod vits_tokenize;
 
 #[cfg(feature = "japanese")]
 mod japanese;
 
 pub use coqui_vits::CoquiVitsModel;
+pub use cotovia_vits::CotoviaVitsModel;
+pub use gl_g2p::galician_g2p;
 pub use kokoro::KokoroModel;
 #[cfg(feature = "mnn")]
 pub use kokoro_mnn::KokoroMnnModel;
 pub use mms::MmsModel;
 pub use piper::PiperModel;
 pub use sherpa_vits::SherpaVitsModel;
+#[cfg(feature = "mnn")]
+pub use supertonic3_mnn::Supertonic3MnnModel;
 
 #[derive(Debug)]
 pub enum PiperError {
