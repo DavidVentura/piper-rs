@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
-use ndarray::{Array1, Array2};
-use ort::session::Session;
-use ort::value::Tensor;
+use mnn_sys::{ModuleEngine, NamedInput, TensorData};
 use serde::Deserialize;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::{build_session, espeak_phonemize, vits_tokenize, Backend, PiperError, PiperResult};
+use crate::{espeak_phonemize, load_module, vits_tokenize, Backend, PiperError, PiperResult};
 
 const BOS: char = '^';
 const EOS: char = '$';
@@ -45,7 +43,7 @@ struct RawConfig {
 }
 
 pub struct PiperModel {
-    session: Session,
+    engine: ModuleEngine,
     sample_rate: u32,
     espeak_voice: String,
     phoneme_type: String,
@@ -63,7 +61,7 @@ pub struct PiperFrontendDebug {
 }
 
 impl PiperModel {
-    pub fn new(model_path: &Path, config_path: &Path, backend: &Backend) -> PiperResult<Self> {
+    pub fn new(model_path: &Path, config_path: &Path, _backend: &Backend) -> PiperResult<Self> {
         let file = File::open(config_path).map_err(|e| {
             PiperError::FailedToLoadResource(format!(
                 "Failed to open config `{}`: {}",
@@ -74,9 +72,9 @@ impl PiperModel {
         let raw: RawConfig = serde_json::from_reader(file).map_err(|e| {
             PiperError::FailedToLoadResource(format!("Failed to parse config: {}", e))
         })?;
-        let session = build_session(model_path, backend)?;
+        let engine = load_module(model_path, piper_input_names(raw.num_speakers), &["output"])?;
         Ok(Self {
-            session,
+            engine,
             sample_rate: raw.audio.sample_rate,
             espeak_voice: raw.espeak.voice,
             phoneme_type: raw.phoneme_type,
@@ -92,7 +90,7 @@ impl PiperModel {
     pub fn from_mimic3(
         model_path: &Path,
         config_path: &Path,
-        backend: &Backend,
+        _backend: &Backend,
     ) -> PiperResult<Self> {
         #[derive(Deserialize)]
         struct Mimic3Audio {
@@ -138,9 +136,13 @@ impl PiperModel {
             phoneme_id_map.insert(token.clone(), vec![*id]);
         }
 
-        let session = build_session(model_path, backend)?;
+        let engine = load_module(
+            model_path,
+            piper_input_names(raw.model.n_speakers),
+            &["output"],
+        )?;
         Ok(Self {
-            session,
+            engine,
             sample_rate: raw.audio.sample_rate,
             espeak_voice: raw.text_language,
             phoneme_type: default_phoneme_type(),
@@ -190,7 +192,7 @@ impl PiperModel {
     ) -> PiperResult<(Vec<f32>, u32)> {
         let phonemes: String = phonemes.trim().nfd().collect();
         let samples = infer(
-            &mut self.session,
+            &self.engine,
             &self.phoneme_id_map,
             self.num_speakers,
             &phonemes,
@@ -324,8 +326,16 @@ fn phoneme_string_to_tokens(
     tokens
 }
 
+fn piper_input_names(num_speakers: u32) -> &'static [&'static str] {
+    if num_speakers > 1 {
+        &["input", "input_lengths", "scales", "sid"]
+    } else {
+        &["input", "input_lengths", "scales"]
+    }
+}
+
 fn infer(
-    session: &mut Session,
+    engine: &ModuleEngine,
     phoneme_id_map: &HashMap<String, Vec<i64>>,
     num_speakers: u32,
     phonemes: &str,
@@ -336,40 +346,46 @@ fn infer(
 ) -> PiperResult<Vec<f32>> {
     let ids = phonemes_to_ids(phoneme_id_map, phonemes);
     let input_len = ids.len();
-    let input = Array2::<i64>::from_shape_vec((1, input_len), ids).unwrap();
-    let input_lengths = Array1::<i64>::from_iter([input_len as i64]);
-    let scales = Array1::<f32>::from_iter([noise_scale, length_scale, noise_w]);
+    let ids_i32: Vec<i32> = ids.iter().map(|&id| id as i32).collect();
+    let lengths = [input_len as i32];
+    let scales = [noise_scale, length_scale, noise_w];
+    let sid = [speaker_id as i32];
+    let input_shape = [1usize, input_len];
 
-    let input_t = Tensor::<i64>::from_array((
-        [1, input_len],
-        input.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let lengths_t = Tensor::<i64>::from_array((
-        [1],
-        input_lengths.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let scales_t =
-        Tensor::<f32>::from_array(([3], scales.into_raw_vec_and_offset().0.into_boxed_slice()))
-            .unwrap();
-
-    let outputs = if num_speakers > 1 {
-        let sid = Array1::<i64>::from_iter([speaker_id]);
-        let sid_t =
-            Tensor::<i64>::from_array(([1], sid.into_raw_vec_and_offset().0.into_boxed_slice()))
-                .unwrap();
-        session.run(ort::inputs![input_t, lengths_t, scales_t, sid_t])
-    } else {
-        session.run(ort::inputs![input_t, lengths_t, scales_t])
+    let mut inputs = vec![
+        NamedInput {
+            name: "input",
+            data: TensorData::I32(&ids_i32),
+            shape: &input_shape,
+        },
+        NamedInput {
+            name: "input_lengths",
+            data: TensorData::I32(&lengths),
+            shape: &[1],
+        },
+        NamedInput {
+            name: "scales",
+            data: TensorData::F32(&scales),
+            shape: &[3],
+        },
+    ];
+    if num_speakers > 1 {
+        inputs.push(NamedInput {
+            name: "sid",
+            data: TensorData::I32(&sid),
+            shape: &[1],
+        });
     }
-    .map_err(|e| PiperError::InferenceError(format!("Inference failed: {}", e)))?;
 
-    let (_, audio) = outputs[0]
-        .try_extract_tensor::<f32>()
-        .map_err(|e| PiperError::InferenceError(format!("Failed to extract output: {}", e)))?;
+    let outputs = engine
+        .run_named_dynamic(&inputs, &["output"])
+        .map_err(|e| PiperError::InferenceError(format!("Inference failed: {}", e)))?;
 
-    let mut samples = audio.to_vec();
+    let mut samples = outputs
+        .into_iter()
+        .next()
+        .ok_or_else(|| PiperError::InferenceError("MNN returned no waveform output".to_string()))?
+        .data;
     crate::normalize_audio(&mut samples);
     Ok(samples)
 }

@@ -17,7 +17,11 @@ fn main() {
         .nth(3)
         .map(|s| s.parse().expect("Speaker ID must be a number"));
 
-    let onnx_path = config_path.replace(".onnx.json", ".onnx");
+    if let Ok(dir) = std::env::var("ESPEAK_DATA") {
+        piper_rs::init_espeak(Path::new(&dir)).expect("espeak init");
+    }
+
+    let onnx_path = config_path.replace(".onnx.json", ".mnn");
     let mut model = PiperModel::new(
         Path::new(&onnx_path),
         Path::new(&config_path),
@@ -28,7 +32,9 @@ fn main() {
     //let text = "Chào Hoành, cậu thế nào rồi?\n";
     //let text = "Hello! This file was created by piper-rs.";
     //let text = "Hallo, wie geht's dir?";
-    let text = "Der Regenbogen ist ein atmosphärisch-optisches Phänomen, das als kreisbogenförmiges farbiges Lichtband in einer von der Sonne beschienenen Regenwand oder -wolke wahrgenommen wird.";
+    let default_text = "Der Regenbogen ist ein atmosphärisch-optisches Phänomen, das als kreisbogenförmiges farbiges Lichtband in einer von der Sonne beschienenen Regenwand oder -wolke wahrgenommen wird.";
+    let text_owned = std::env::var("TEXT").unwrap_or_else(|_| default_text.to_string());
+    let text = text_owned.as_str();
     let (samples, sample_rate) = model.synthesize(text, speaker_id).unwrap();
 
     let samples_i16: Vec<i16> = samples

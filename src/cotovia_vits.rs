@@ -3,14 +3,12 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
-use ndarray::{Array1, Array2};
-use ort::session::Session;
-use ort::value::Tensor;
+use mnn_sys::{ModuleEngine, NamedInput, TensorData};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::gl_g2p::galician_g2p;
 use crate::vits_tokenize;
-use crate::{build_session, Backend, PiperError, PiperResult};
+use crate::{load_module, Backend, PiperError, PiperResult};
 
 // Captured from the AhoTTS/cotovia frontend that produced the sabela voice: the
 // model consumes `0 p1 0 p2 ... 0 3 0` — blank id 0 interspersed, words joined
@@ -32,7 +30,7 @@ const LENGTH_SCALE: f32 = 1.0;
 /// `word -> token ids` lexicon (cotovia g2p, baked). Out-of-vocabulary words are
 /// dropped until the normalization / rule fallback lands.
 pub struct CotoviaVitsModel {
-    session: Session,
+    engine: ModuleEngine,
     lexicon: HashMap<String, Vec<i64>>,
     // abbreviation -> expansion (e.g. "sr." -> "señor"); cotovia's abr.txt,
     // shipped in the lexicon file as `@key\texpansion` lines.
@@ -40,11 +38,15 @@ pub struct CotoviaVitsModel {
 }
 
 impl CotoviaVitsModel {
-    pub fn new(model_path: &Path, lexicon_path: &Path, backend: &Backend) -> PiperResult<Self> {
+    pub fn new(model_path: &Path, lexicon_path: &Path, _backend: &Backend) -> PiperResult<Self> {
         let (lexicon, abbreviations) = load_lexicon(lexicon_path)?;
-        let session = build_session(model_path, backend)?;
+        let engine = load_module(
+            model_path,
+            &["input", "input_lengths", "scales"],
+            &["output"],
+        )?;
         Ok(Self {
-            session,
+            engine,
             lexicon,
             abbreviations,
         })
@@ -77,7 +79,7 @@ impl CotoviaVitsModel {
         if ids.is_empty() {
             return Ok((Vec::new(), SAMPLE_RATE));
         }
-        let samples = infer(&mut self.session, &ids, speed.unwrap_or(1.0))?;
+        let samples = infer(&self.engine, &ids, speed.unwrap_or(1.0))?;
         Ok((samples, SAMPLE_RATE))
     }
 
@@ -249,42 +251,40 @@ fn load_lexicon(path: &Path) -> PiperResult<Lexicons> {
     Ok((lexicon, abbreviations))
 }
 
-fn infer(session: &mut Session, ids: &[i64], speed: f32) -> PiperResult<Vec<f32>> {
-    let input = Array2::<i64>::from_shape_vec((1, ids.len()), ids.to_vec()).unwrap();
-    let input_lengths = Array1::<i64>::from_iter([ids.len() as i64]);
-    let scales =
-        Array1::<f32>::from_iter([NOISE_SCALE, LENGTH_SCALE / speed.max(0.1), NOISE_SCALE_W]);
+fn infer(engine: &ModuleEngine, ids: &[i64], speed: f32) -> PiperResult<Vec<f32>> {
+    let ids_i32: Vec<i32> = ids.iter().map(|&id| id as i32).collect();
+    let lengths = [ids.len() as i32];
+    let scales = [NOISE_SCALE, LENGTH_SCALE / speed.max(0.1), NOISE_SCALE_W];
+    let input_shape = [1usize, ids.len()];
 
-    let input_t = Tensor::<i64>::from_array((
-        [1, ids.len()],
-        input.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let lengths_t = Tensor::<i64>::from_array((
-        [1],
-        input_lengths.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    // sabela declares `scales` as rank-2 [batch, 3], unlike the coqui exports.
-    let scales_t = Tensor::<f32>::from_array((
-        [1, 3],
-        scales.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
+    let inputs = [
+        NamedInput {
+            name: "input",
+            data: TensorData::I32(&ids_i32),
+            shape: &input_shape,
+        },
+        NamedInput {
+            name: "input_lengths",
+            data: TensorData::I32(&lengths),
+            shape: &[1],
+        },
+        // sabela declares `scales` as rank-2 [batch, 3], unlike the coqui exports.
+        NamedInput {
+            name: "scales",
+            data: TensorData::F32(&scales),
+            shape: &[1, 3],
+        },
+    ];
 
-    let outputs = session
-        .run(ort::inputs! {
-            "input" => input_t,
-            "input_lengths" => lengths_t,
-            "scales" => scales_t,
-        })
+    let outputs = engine
+        .run_named_dynamic(&inputs, &["output"])
         .map_err(|e| PiperError::InferenceError(format!("Inference failed: {}", e)))?;
 
-    let (_, audio) = outputs[0]
-        .try_extract_tensor::<f32>()
-        .map_err(|e| PiperError::InferenceError(format!("Failed to extract output: {}", e)))?;
-
-    let mut samples = audio.to_vec();
+    let mut samples = outputs
+        .into_iter()
+        .next()
+        .ok_or_else(|| PiperError::InferenceError("MNN returned no waveform output".to_string()))?
+        .data;
     crate::normalize_audio(&mut samples);
     Ok(samples)
 }

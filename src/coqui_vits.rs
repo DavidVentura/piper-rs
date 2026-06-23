@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 
-use ndarray::{Array1, Array2};
-use ort::session::Session;
-use ort::value::Tensor;
+use mnn_sys::{ModuleEngine, NamedInput, TensorData};
 use serde::Deserialize;
 
 use crate::vits_tokenize;
-use crate::{build_session, Backend, PiperError, PiperResult};
+use crate::{load_module, Backend, PiperError, PiperResult};
 
 const DEFAULT_NOISE_SCALE: f32 = 0.3;
 const DEFAULT_NOISE_SCALE_W: f32 = 0.3;
@@ -47,7 +45,7 @@ struct RawConfig {
 }
 
 pub struct CoquiVitsModel {
-    session: Session,
+    engine: ModuleEngine,
     sample_rate: u32,
     token_to_id: HashMap<String, i64>,
     max_token_chars: usize,
@@ -73,7 +71,7 @@ impl CoquiVitsModel {
         model_path: &Path,
         config_path: &Path,
         language_code: &str,
-        backend: &Backend,
+        _backend: &Backend,
     ) -> PiperResult<Self> {
         let file = File::open(config_path).map_err(|e| {
             PiperError::FailedToLoadResource(format!(
@@ -100,20 +98,26 @@ impl CoquiVitsModel {
         let language_ids = load_optional_id_map(&config_dir.join("language_ids.json"))?;
         let speaker_id_map = load_optional_id_map(&config_dir.join("speaker_ids.json"))?;
 
-        let session = build_session(model_path, backend)?;
-        let input_names = session
-            .inputs()
-            .iter()
-            .map(|input| input.name().to_owned())
-            .collect::<Vec<_>>();
-        let has_langid_input = input_names.iter().any(|name| name == "langid");
-        let speaker_input_name = input_names
-            .iter()
-            .find(|name| matches!(name.as_str(), "sid" | "speaker_id" | "speaker"))
-            .cloned();
+        // MNN drops ONNX input metadata, so the model's optional inputs are
+        // derived from the sidecar id maps instead of session introspection.
+        let has_langid_input = !language_ids.is_empty();
+        let speaker_input_name = if !speaker_id_map.is_empty() {
+            Some("sid".to_string())
+        } else {
+            None
+        };
+
+        let mut input_names: Vec<&str> = vec!["input", "input_lengths", "scales"];
+        if has_langid_input {
+            input_names.push("langid");
+        }
+        if speaker_input_name.is_some() {
+            input_names.push("sid");
+        }
+        let engine = load_module(model_path, &input_names, &["output"])?;
 
         let language_id = resolve_language_id(language_code, &language_ids)?;
-        let default_speaker_id = if speaker_input_name.is_some() && !speaker_id_map.is_empty() {
+        let default_speaker_id = if speaker_input_name.is_some() {
             speaker_id_map.values().copied().min()
         } else {
             None
@@ -134,7 +138,7 @@ impl CoquiVitsModel {
         };
 
         Ok(Self {
-            session,
+            engine,
             sample_rate: raw.audio.sample_rate,
             token_to_id,
             max_token_chars,
@@ -184,7 +188,7 @@ impl CoquiVitsModel {
         }
 
         let samples = infer(
-            &mut self.session,
+            &self.engine,
             &ids,
             self.language_id,
             speaker_id.or(self.default_speaker_id),
@@ -279,7 +283,7 @@ fn resolve_language_id(
 
 #[allow(clippy::too_many_arguments)]
 fn infer(
-    session: &mut Session,
+    engine: &ModuleEngine,
     ids: &[i64],
     language_id: i64,
     speaker_id: Option<i64>,
@@ -290,54 +294,56 @@ fn infer(
     has_langid_input: bool,
     speaker_input_name: Option<&str>,
 ) -> PiperResult<Vec<f32>> {
-    let input = Array2::<i64>::from_shape_vec((1, ids.len()), ids.to_vec()).unwrap();
-    let input_lengths = Array1::<i64>::from_iter([ids.len() as i64]);
-    let scales =
-        Array1::<f32>::from_iter([noise_scale, length_scale / speed.max(0.1), noise_scale_w]);
+    let ids_i32: Vec<i32> = ids.iter().map(|&id| id as i32).collect();
+    let lengths = [ids.len() as i32];
+    let scales = [noise_scale, length_scale / speed.max(0.1), noise_scale_w];
+    let langid = [language_id as i32];
+    let sid = [speaker_id.unwrap_or(0) as i32];
+    let input_shape = [1usize, ids.len()];
 
-    let input_t = Tensor::<i64>::from_array((
-        [1, ids.len()],
-        input.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let lengths_t = Tensor::<i64>::from_array((
-        [1],
-        input_lengths.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let scales_t =
-        Tensor::<f32>::from_array(([3], scales.into_raw_vec_and_offset().0.into_boxed_slice()))
-            .unwrap();
-
-    let mut inputs = ort::inputs! {
-        "input" => input_t,
-        "input_lengths" => lengths_t,
-        "scales" => scales_t,
-    };
+    let mut inputs = vec![
+        NamedInput {
+            name: "input",
+            data: TensorData::I32(&ids_i32),
+            shape: &input_shape,
+        },
+        NamedInput {
+            name: "input_lengths",
+            data: TensorData::I32(&lengths),
+            shape: &[1],
+        },
+        NamedInput {
+            name: "scales",
+            data: TensorData::F32(&scales),
+            shape: &[3],
+        },
+    ];
 
     if has_langid_input {
-        let lang_t =
-            Tensor::<i64>::from_array(([1], vec![language_id].into_boxed_slice())).unwrap();
-        inputs.push(("langid".into(), lang_t.into()));
+        inputs.push(NamedInput {
+            name: "langid",
+            data: TensorData::I32(&langid),
+            shape: &[1],
+        });
     }
 
     if let Some(name) = speaker_input_name {
-        if let Some(speaker_id) = speaker_id {
-            let sid_t =
-                Tensor::<i64>::from_array(([1], vec![speaker_id].into_boxed_slice())).unwrap();
-            inputs.push((name.into(), sid_t.into()));
-        }
+        inputs.push(NamedInput {
+            name,
+            data: TensorData::I32(&sid),
+            shape: &[1],
+        });
     }
 
-    let outputs = session
-        .run(inputs)
+    let outputs = engine
+        .run_named_dynamic(&inputs, &["output"])
         .map_err(|e| PiperError::InferenceError(format!("Inference failed: {}", e)))?;
 
-    let (_, audio) = outputs[0]
-        .try_extract_tensor::<f32>()
-        .map_err(|e| PiperError::InferenceError(format!("Failed to extract output: {}", e)))?;
-
-    let mut samples = audio.to_vec();
+    let mut samples = outputs
+        .into_iter()
+        .next()
+        .ok_or_else(|| PiperError::InferenceError("MNN returned no waveform output".to_string()))?
+        .data;
     crate::normalize_audio(&mut samples);
     Ok(samples)
 }

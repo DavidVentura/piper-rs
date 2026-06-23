@@ -3,13 +3,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use ndarray::Array1;
-use ort::session::Session;
-use ort::value::Tensor;
+use mnn_sys::{ModuleEngine, NamedInput, TensorData};
 use serde::Deserialize;
 
 use crate::vits_tokenize;
-use crate::{build_session, Backend, PiperError, PiperResult};
+use crate::{load_module, Backend, PiperError, PiperResult};
 
 #[cfg(feature = "fst-normalization")]
 mod fst_normalize {
@@ -91,7 +89,7 @@ struct RawConfig {
 /// VITS model in the sherpa-onnx export format, using a lexicon for
 /// character-to-phoneme lookup (e.g. Cantonese, Mandarin).
 pub struct SherpaVitsModel {
-    session: Session,
+    engine: ModuleEngine,
     sample_rate: u32,
     token_to_id: HashMap<String, i64>,
     blank_id: Option<i64>,
@@ -101,7 +99,7 @@ pub struct SherpaVitsModel {
 }
 
 impl SherpaVitsModel {
-    pub fn new(model_path: &Path, config_path: &Path, backend: &Backend) -> PiperResult<Self> {
+    pub fn new(model_path: &Path, config_path: &Path, _backend: &Backend) -> PiperResult<Self> {
         let file = File::open(config_path).map_err(|e| {
             PiperError::FailedToLoadResource(format!(
                 "Failed to open config `{}`: {}",
@@ -135,7 +133,17 @@ impl SherpaVitsModel {
                 None
             }
         };
-        let session = build_session(model_path, backend)?;
+        let engine = load_module(
+            model_path,
+            &[
+                "x",
+                "x_length",
+                "noise_scale",
+                "length_scale",
+                "noise_scale_w",
+            ],
+            &["y"],
+        )?;
 
         let blank_id = if raw.data.add_blank {
             Some(*token_to_id.get("_").ok_or_else(|| {
@@ -148,7 +156,7 @@ impl SherpaVitsModel {
         };
 
         Ok(Self {
-            session,
+            engine,
             sample_rate: raw.data.sampling_rate,
             token_to_id,
             blank_id,
@@ -179,7 +187,7 @@ impl SherpaVitsModel {
             return Ok((Vec::new(), self.sample_rate));
         }
 
-        let samples = infer(&mut self.session, &ids, speed.unwrap_or(1.0))?;
+        let samples = infer(&self.engine, &ids, speed.unwrap_or(1.0))?;
         Ok((samples, self.sample_rate))
     }
 
@@ -321,48 +329,51 @@ fn load_lexicon(path: &Path) -> PiperResult<HashMap<String, Vec<String>>> {
     Ok(lexicon)
 }
 
-fn infer(session: &mut Session, ids: &[i64], speed: f32) -> PiperResult<Vec<f32>> {
-    let input = Array1::<i64>::from_iter(ids.iter().copied());
-    let input_len = Array1::<i64>::from_iter([ids.len() as i64]);
-    let noise = Array1::<f32>::from_iter([DEFAULT_NOISE_SCALE]);
-    let length = Array1::<f32>::from_iter([DEFAULT_LENGTH_SCALE / speed.max(0.1)]);
-    let noise_w = Array1::<f32>::from_iter([DEFAULT_NOISE_SCALE_W]);
+fn infer(engine: &ModuleEngine, ids: &[i64], speed: f32) -> PiperResult<Vec<f32>> {
+    let ids_i32: Vec<i32> = ids.iter().map(|&id| id as i32).collect();
+    let input_len = [ids.len() as i32];
+    let noise = [DEFAULT_NOISE_SCALE];
+    let length = [DEFAULT_LENGTH_SCALE / speed.max(0.1)];
+    let noise_w = [DEFAULT_NOISE_SCALE_W];
+    let input_shape = [1usize, ids.len()];
 
-    let input_t = Tensor::<i64>::from_array((
-        [1, ids.len()],
-        input.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let input_len_t = Tensor::<i64>::from_array((
-        [1],
-        input_len.into_raw_vec_and_offset().0.into_boxed_slice(),
-    ))
-    .unwrap();
-    let noise_t =
-        Tensor::<f32>::from_array(([1], noise.into_raw_vec_and_offset().0.into_boxed_slice()))
-            .unwrap();
-    let length_t =
-        Tensor::<f32>::from_array(([1], length.into_raw_vec_and_offset().0.into_boxed_slice()))
-            .unwrap();
-    let noise_w_t =
-        Tensor::<f32>::from_array(([1], noise_w.into_raw_vec_and_offset().0.into_boxed_slice()))
-            .unwrap();
+    let inputs = [
+        NamedInput {
+            name: "x",
+            data: TensorData::I32(&ids_i32),
+            shape: &input_shape,
+        },
+        NamedInput {
+            name: "x_length",
+            data: TensorData::I32(&input_len),
+            shape: &[1],
+        },
+        NamedInput {
+            name: "noise_scale",
+            data: TensorData::F32(&noise),
+            shape: &[1],
+        },
+        NamedInput {
+            name: "length_scale",
+            data: TensorData::F32(&length),
+            shape: &[1],
+        },
+        NamedInput {
+            name: "noise_scale_w",
+            data: TensorData::F32(&noise_w),
+            shape: &[1],
+        },
+    ];
 
-    let outputs = session
-        .run(ort::inputs![
-            input_t,
-            input_len_t,
-            noise_t,
-            length_t,
-            noise_w_t
-        ])
+    let outputs = engine
+        .run_named_dynamic(&inputs, &["y"])
         .map_err(|e| PiperError::InferenceError(format!("Inference failed: {}", e)))?;
 
-    let (_, audio) = outputs[0]
-        .try_extract_tensor::<f32>()
-        .map_err(|e| PiperError::InferenceError(format!("Failed to extract output: {}", e)))?;
-
-    let mut samples = audio.to_vec();
+    let mut samples = outputs
+        .into_iter()
+        .next()
+        .ok_or_else(|| PiperError::InferenceError("MNN returned no waveform output".to_string()))?
+        .data;
     crate::normalize_audio(&mut samples);
     Ok(samples)
 }
