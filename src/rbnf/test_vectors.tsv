@@ -1,0 +1,360 @@
+en	0	zero
+en	1	one
+en	2	two
+en	3	three
+en	9	nine
+en	10	ten
+en	11	eleven
+en	12	twelve
+en	13	thirteen
+en	15	fifteen
+en	19	nineteen
+en	20	twenty
+en	21	twenty-one
+en	23	twenty-three
+en	29	twenty-nine
+en	30	thirty
+en	40	forty
+en	50	fifty
+en	99	ninety-nine
+en	100	one hundred
+en	101	one hundred one
+en	111	one hundred eleven
+en	123	one hundred twenty-three
+en	200	two hundred
+en	201	two hundred one
+en	234	two hundred thirty-four
+en	300	three hundred
+en	999	nine hundred ninety-nine
+en	1000	one thousand
+en	1001	one thousand one
+en	1234	one thousand two hundred thirty-four
+en	2000	two thousand
+en	3000	three thousand
+en	9999	nine thousand nine hundred ninety-nine
+en	10000	ten thousand
+en	11000	eleven thousand
+en	21000	twenty-one thousand
+en	100000	one hundred thousand
+en	123456	one hundred twenty-three thousand four hundred fifty-six
+en	1000000	one million
+en	2000000	two million
+en	1000000007	one billion seven
+en	-1	minus one
+en	-23	minus twenty-three
+en	-1000	minus one thousand
+he	0	אפס
+he	1	אחת
+he	2	שתיים
+he	3	שלוש
+he	9	תשע
+he	10	עשר
+he	11	אחת עשרה
+he	12	שתים עשרה
+he	13	שלוש עשרה
+he	15	חמש עשרה
+he	19	תשע עשרה
+he	20	עשרים
+he	21	עשרים ואחת
+he	23	עשרים ושלוש
+he	29	עשרים ותשע
+he	30	שלושים
+he	40	ארבעים
+he	50	חמישים
+he	99	תשעים ותשע
+he	100	מאה
+he	101	מאה ואחת
+he	111	מאה ואחת עשרה
+he	123	מאה עשרים ושלוש
+he	200	מאתיים
+he	201	מאתיים ואחת
+he	234	מאתיים שלושים וארבע
+he	300	שלוש מאות
+he	999	תשע מאות תשעים ותשע
+he	1000	אלף
+he	1001	אלף ואחת
+he	1234	אלף מאתיים שלושים וארבע
+he	2000	אלפיים
+he	3000	שלושת אלפים
+he	9999	תשעת אלפים תשע מאות תשעים ותשע
+he	10000	עשרת אלפים
+he	11000	אחד עשר אלף
+he	21000	עשרים ואחד אלף
+he	100000	מאה אלף
+he	123456	מאה עשרים ושלושה אלף ארבע מאות חמישים ושש
+he	1000000	מיליון
+he	2000000	שני מיליון
+he	1000000007	מיליארד ושבע
+he	-1	מינוס אחת
+he	-23	מינוס עשרים ושלוש
+he	-1000	מינוס אלף
+th	0	ศูนย์
+th	1	หนึ่ง
+th	2	สอง
+th	3	สาม
+th	9	เก้า
+th	10	สิบ
+th	11	สิบ​เอ็ด
+th	12	สิบ​สอง
+th	13	สิบ​สาม
+th	15	สิบ​ห้า
+th	19	สิบ​เก้า
+th	20	ยี่​สิบ
+th	21	ยี่​สิบ​เอ็ด
+th	23	ยี่​สิบ​สาม
+th	29	ยี่​สิบ​เก้า
+th	30	สาม​สิบ
+th	40	สี่​สิบ
+th	50	ห้า​สิบ
+th	99	เก้า​สิบ​เก้า
+th	100	หนึ่ง​ร้อย
+th	101	หนึ่ง​ร้อย​หนึ่ง
+th	111	หนึ่ง​ร้อย​สิบ​เอ็ด
+th	123	หนึ่ง​ร้อย​ยี่​สิบ​สาม
+th	200	สอง​ร้อย
+th	201	สอง​ร้อย​หนึ่ง
+th	234	สอง​ร้อย​สาม​สิบ​สี่
+th	300	สาม​ร้อย
+th	999	เก้า​ร้อย​เก้า​สิบ​เก้า
+th	1000	หนึ่ง​พัน
+th	1001	หนึ่ง​พัน​หนึ่ง
+th	1234	หนึ่ง​พัน​สอง​ร้อย​สาม​สิบ​สี่
+th	2000	สอง​พัน
+th	3000	สาม​พัน
+th	9999	เก้า​พัน​เก้า​ร้อย​เก้า​สิบ​เก้า
+th	10000	หนึ่ง​หมื่น
+th	11000	หนึ่ง​หมื่น​หนึ่ง​พัน
+th	21000	สอง​หมื่น​หนึ่ง​พัน
+th	100000	หนึ่ง​แสน
+th	123456	หนึ่ง​แสน​สอง​หมื่น​สาม​พัน​สี่​ร้อย​ห้า​สิบ​หก
+th	1000000	หนึ่ง​ล้าน
+th	2000000	สอง​ล้าน
+th	1000000007	หนึ่ง​พัน​ล้าน​เจ็ด
+th	-1	ลบ​หนึ่ง
+th	-23	ลบ​ยี่​สิบ​สาม
+th	-1000	ลบ​หนึ่ง​พัน
+bn	0	শূন্য
+bn	1	এক
+bn	2	দুই
+bn	3	তিন
+bn	9	নয়
+bn	10	দশ
+bn	11	এগারো
+bn	12	বারো
+bn	13	তেরো
+bn	15	পনেরো
+bn	19	উনিশ
+bn	20	কুড়ি
+bn	21	একুশ
+bn	23	তেইশ
+bn	29	উনত্রিশ
+bn	30	ত্রিশ
+bn	40	চল্লিশ
+bn	50	পঞ্চাশ
+bn	99	নিরানব্বই
+bn	100	একশো
+bn	101	একশো এক
+bn	111	একশো এগারো
+bn	123	একশো তেইশ
+bn	200	দুইশো
+bn	201	দুইশো এক
+bn	234	দুইশো চৌত্রিশ
+bn	300	তিনশো
+bn	999	নয়শো নিরানব্বই
+bn	1000	এক হাজার
+bn	1001	এক হাজার এক
+bn	1234	এক হাজার দুইশো চৌত্রিশ
+bn	2000	দুই হাজার
+bn	3000	তিন হাজার
+bn	9999	নয় হাজার নয়শো নিরানব্বই
+bn	10000	দশ হাজার
+bn	11000	এগারো হাজার
+bn	21000	একুশ হাজার
+bn	100000	এক লাখ
+bn	123456	এক লাখ তেইশ হাজার চারশো ছাপান্ন
+bn	1000000	দশ লাখ
+bn	2000000	কুড়ি লাখ
+bn	1000000007	এক আরব সাত
+bn	-1	ঋণ এক
+bn	-23	ঋণ তেইশ
+bn	-1000	ঋণ এক হাজার
+gu	0	શૂન્ય
+gu	1	એક
+gu	2	બે
+gu	3	ત્રણ
+gu	9	નવ
+gu	10	દસ
+gu	11	અગિયાર
+gu	12	બાર
+gu	13	તેર
+gu	15	પંદર
+gu	19	ઓગણીસ
+gu	20	વીસ
+gu	21	એકવીસ
+gu	23	તેવીસ
+gu	29	ઓગણત્રીસ
+gu	30	ત્રીસ
+gu	40	ચાલીસ
+gu	50	પચાસ
+gu	99	નવાણું
+gu	100	એક સો
+gu	101	એક સો એક
+gu	111	એક સો અગિયાર
+gu	123	એક સો તેવીસ
+gu	200	બે સો
+gu	201	બે સો એક
+gu	234	બે સો ચોત્રીસ
+gu	300	ત્રણ સો
+gu	999	નવ સો નવાણું
+gu	1000	એક હજાર
+gu	1001	એક હજાર એક
+gu	1234	એક હજાર બે સો ચોત્રીસ
+gu	2000	બે હજાર
+gu	3000	ત્રણ હજાર
+gu	9999	નવ હજાર નવ સો નવાણું
+gu	10000	દસ હજાર
+gu	11000	અગિયાર હજાર
+gu	21000	એકવીસ હજાર
+gu	100000	એક લાખ
+gu	123456	એક લાખ તેવીસ હજાર ચાર સો છપ્પન
+gu	1000000	દસ લાખ
+gu	2000000	વીસ લાખ
+gu	1000000007	એક અબજ સાત
+gu	-1	નકારાત્મક એક
+gu	-23	નકારાત્મક તેવીસ
+gu	-1000	નકારાત્મક એક હજાર
+mr	0	शून्य
+mr	1	एक
+mr	2	दोन
+mr	3	तीन
+mr	9	नऊ
+mr	10	दहा
+mr	11	अकरा
+mr	12	बारा
+mr	13	तेरा
+mr	15	पंधरा
+mr	19	एकोणीस
+mr	20	वीस
+mr	21	एकवीस
+mr	23	तेवीस
+mr	29	एकोणतीस
+mr	30	तीस
+mr	40	चाळीस
+mr	50	पन्नास
+mr	99	नव्व्याण्णव
+mr	100	शंभर
+mr	101	एकशे एक
+mr	111	एकशे अकरा
+mr	123	एकशे तेवीस
+mr	200	दोनशे
+mr	201	दोनशे एक
+mr	234	दोनशे चौतीस
+mr	300	तीनशे
+mr	999	नऊशे नव्व्याण्णव
+mr	1000	एक हजार
+mr	1001	एक हजार एक
+mr	1234	एक हजार दोनशे चौतीस
+mr	2000	दोन हजार
+mr	3000	तीन हजार
+mr	9999	नऊ हजार नऊशे नव्व्याण्णव
+mr	10000	दहा हजार
+mr	11000	अकरा हजार
+mr	21000	एकवीस हजार
+mr	100000	एक लाख
+mr	123456	एक लाख तेवीस हजार चारशे छप्पन्न
+mr	1000000	दहा लाख
+mr	2000000	वीस लाख
+mr	1000000007	एक अब्ज सात
+mr	-1	उणे एक
+mr	-23	उणे तेवीस
+mr	-1000	उणे एक हजार
+ms	0	kosong
+ms	1	satu
+ms	2	dua
+ms	3	tiga
+ms	9	sembilan
+ms	10	sepuluh
+ms	11	sebelas
+ms	12	dua belas
+ms	13	tiga belas
+ms	15	lima belas
+ms	19	sembilan belas
+ms	20	dua puluh
+ms	21	dua puluh satu
+ms	23	dua puluh tiga
+ms	29	dua puluh sembilan
+ms	30	tiga puluh
+ms	40	empat puluh
+ms	50	lima puluh
+ms	99	sembilan puluh sembilan
+ms	100	seratus
+ms	101	seratus satu
+ms	111	seratus sebelas
+ms	123	seratus dua puluh tiga
+ms	200	dua ratus
+ms	201	dua ratus satu
+ms	234	dua ratus tiga puluh empat
+ms	300	tiga ratus
+ms	999	sembilan ratus sembilan puluh sembilan
+ms	1000	seribu
+ms	1001	seribu satu
+ms	1234	seribu dua ratus tiga puluh empat
+ms	2000	dua ribu
+ms	3000	tiga ribu
+ms	9999	sembilan ribu sembilan ratus sembilan puluh sembilan
+ms	10000	sepuluh ribu
+ms	11000	sebelas ribu
+ms	21000	dua puluh satu ribu
+ms	100000	seratus ribu
+ms	123456	seratus dua puluh tiga ribu empat ratus lima puluh enam
+ms	1000000	sejuta
+ms	2000000	dua juta
+ms	1000000007	satu bilion tujuh
+ms	-1	negatif satu
+ms	-23	negatif dua puluh tiga
+ms	-1000	negatif seribu
+az	0	sıfır
+az	1	bir
+az	2	iki
+az	3	üç
+az	9	doqquz
+az	10	on
+az	11	on bir
+az	12	on iki
+az	13	on üç
+az	15	on beş
+az	19	on doqquz
+az	20	iyirmi
+az	21	iyirmi bir
+az	23	iyirmi üç
+az	29	iyirmi doqquz
+az	30	otuz
+az	40	qırx
+az	50	əlli
+az	99	doxsan doqquz
+az	100	bir yüz
+az	101	bir yüz bir
+az	111	bir yüz on bir
+az	123	bir yüz iyirmi üç
+az	200	iki yüz
+az	201	iki yüz bir
+az	234	iki yüz otuz dörd
+az	300	üç yüz
+az	999	doqquz yüz doxsan doqquz
+az	1000	bir min
+az	1001	bir min bir
+az	1234	bir min iki yüz otuz dörd
+az	2000	iki min
+az	3000	üç min
+az	9999	doqquz min doqquz yüz doxsan doqquz
+az	10000	on min
+az	11000	on bir min
+az	21000	iyirmi bir min
+az	100000	bir yüz min
+az	123456	bir yüz iyirmi üç min dörd yüz əlli altı
+az	1000000	bir milyon
+az	2000000	iki milyon
+az	1000000007	bir milyard yeddi
+az	-1	əksi bir
+az	-23	əksi iyirmi üç
+az	-1000	əksi bir min

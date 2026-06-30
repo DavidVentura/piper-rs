@@ -3,6 +3,7 @@ use std::path::Path;
 
 use mnn_sys::{ModuleEngine, NamedInput, TensorData};
 
+use crate::number_spellout::{self, Lang};
 use crate::vits_tokenize;
 use crate::{load_module, Backend, PiperError, PiperResult};
 
@@ -19,10 +20,18 @@ pub struct MmsModel {
     token_to_id: HashMap<String, i64>,
     max_token_chars: usize,
     blank_id: Option<i64>,
+    // MMS has no number frontend and no digits in its vocab; when the language
+    // is one we have CLDR rules for, numbers are spelled out before tokenizing.
+    language: Option<Lang>,
 }
 
 impl MmsModel {
-    pub fn new(model_path: &Path, tokens_path: &Path, _backend: &Backend) -> PiperResult<Self> {
+    pub fn new(
+        model_path: &Path,
+        tokens_path: &Path,
+        language_code: &str,
+        _backend: &Backend,
+    ) -> PiperResult<Self> {
         let token_to_id = vits_tokenize::load_tokens(tokens_path)?;
         let max_token_chars = vits_tokenize::max_token_chars(&token_to_id);
         let engine = load_module(
@@ -43,6 +52,7 @@ impl MmsModel {
             token_to_id,
             max_token_chars,
             blank_id: Some(0),
+            language: Lang::from_code(language_code),
         })
     }
 
@@ -78,8 +88,12 @@ impl MmsModel {
     }
 
     pub fn phonemize(&self, text: &str) -> PiperResult<String> {
+        let spelled = match self.language {
+            Some(lang) => number_spellout::normalize_numbers(lang, text),
+            None => text.to_owned(),
+        };
         Ok(vits_tokenize::normalize_text(
-            text,
+            &spelled,
             &self.token_to_id,
             self.max_token_chars,
         ))
